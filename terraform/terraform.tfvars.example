@@ -1,0 +1,23 @@
+# Copy this file to terraform.tfvars and fill in values.
+# DO NOT commit terraform.tfvars — it contains secrets.
+#
+# Alternatively, set credentials via environment variables:
+#   export OKTA_ORG_NAME="dev-123456"
+#   export OKTA_BASE_URL="okta.com"
+#   export OKTA_API_TOKEN="00abc..."
+
+# ── Okta org credentials ──────────────────────────────────────────────────────
+okta_org_name  = "dev-123456"        # subdomain from https://dev-123456.okta.com
+okta_base_url  = "okta.com"          # or "oktapreview.com" for preview orgs
+okta_api_token = "REPLACE_ME"        # Security → API → Tokens in Okta Admin Console
+
+# ── AI Agent (MUST be created manually before running terraform apply) ────────
+#
+# 1. Go to: Directory → AI Agents → Register AI Agent
+# 2. Name it "Atko Assistant Agent", generate RS256 key pair, download private_key.pem
+# 3. Paste the Client ID shown on the AI Agent page below:
+okta_ai_agent_id = "wlp_REPLACE_ME"
+
+# ── Local app URLs (defaults work for standard local setup) ──────────────────
+redirect_uri = "http://localhost:8000/auth/callback"
+app_base_url = "http://localhost:8000"

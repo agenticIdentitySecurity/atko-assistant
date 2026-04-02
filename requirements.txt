@@ -1,0 +1,27 @@
+# Web framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9     # form_post callback parsing
+
+# Session middleware (Starlette ships with FastAPI)
+starlette>=0.36.0
+itsdangerous>=2.1.2         # session cookie signing
+
+# Config
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.0
+
+# HTTP client (for Okta token endpoint + JWKS fetch)
+httpx>=0.27.0
+
+# JWT validation
+python-jose[cryptography]>=3.3.0
+
+# Okta cross-app access (on-behalf-of)
+okta-client>=1.0.0
+
+# Anthropic / Claude
+anthropic>=0.25.0
+
+# MCP (Model Context Protocol) — server + client
+mcp[cli]>=1.0.0

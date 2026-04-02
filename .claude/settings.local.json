@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:preview.redoc.ly)",
+      "WebFetch(domain:developer.okta.com)",
+      "WebFetch(domain:registry.terraform.io)",
+      "WebFetch(domain:developer.hashicorp.com)",
+      "WebFetch(domain:help.okta.com)",
+      "WebFetch(domain:support.okta.com)",
+      "Bash(terraform init:*)",
+      "Bash(terraform validate:*)",
+      "Bash(brew list:*)"
+    ]
+  }
+}
