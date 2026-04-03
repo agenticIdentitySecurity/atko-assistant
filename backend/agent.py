@@ -11,10 +11,12 @@ Flow (matches sequence diagram):
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 import anthropic
 from fastapi import HTTPException
+from jose import jwt as jose_jwt
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -30,7 +32,10 @@ Always present data clearly and concisely.
 If you need multiple pieces of information, call the appropriate tools in sequence.
 """
 
-_anthropic = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+_anthropic = anthropic.Anthropic(
+    api_key=settings.ANTHROPIC_API_KEY,
+    **({"base_url": settings.ANTHROPIC_BASE_URL} if settings.ANTHROPIC_BASE_URL else {}),
+)
 
 # Static tool schemas — defined here so Claude can be called before MCP starts.
 # These match the tools registered in mcp_server/server.py.
@@ -114,6 +119,7 @@ async def run_agent(
     message: str,
     history: list[ChatMessage],
     id_token: str,
+    oidc_access_token: str,
     exchanger: Any,
     flow_events: list[str],
     token_exchanges: list[dict],
@@ -138,7 +144,7 @@ async def run_agent(
     logger.info("Calling Claude (phase A — no MCP yet)")
 
     first_response = _anthropic.messages.create(
-        model="claude-sonnet-4-6",
+        model=settings.ANTHROPIC_MODEL,
         max_tokens=2048,
         system=SYSTEM_PROMPT,
         tools=STATIC_TOOL_SCHEMAS,
@@ -151,11 +157,20 @@ async def run_agent(
             block.text for block in first_response.content if hasattr(block, "text")
         )
         flow_events.append("Final response ready (no tools needed)")
+        try:
+            id_claims = jose_jwt.get_unverified_claims(id_token)
+        except Exception:
+            id_claims = None
         return {
             "response": final_text.strip(),
             "tool_calls": [],
             "flow_events": flow_events,
             "token_exchanges": token_exchanges,
+            "token_details": {
+                "oidc_client_id": settings.OKTA_CLIENT_ID,
+                "agent_client_id": settings.OKTA_SERVICE_CLIENT_ID,
+                "id_token_claims": id_claims,
+            },
         }
 
     # Claude wants to call tools
@@ -172,7 +187,8 @@ async def run_agent(
     logger.info("Performing token exchange (Cross-App Access)")
 
     try:
-        mcp_token = await exchanger.exchange(id_token)
+        exchange_result = await exchanger.exchange(id_token, oidc_access_token)
+        mcp_token = exchange_result["access_token"]
     except HTTPException as exc:
         token_exchanges.append({
             "agent": "frontier_mcp",
@@ -206,9 +222,11 @@ async def run_agent(
     # ------------------------------------------------------------------
     # Phase C — MCP agentic loop
     # ------------------------------------------------------------------
+    project_root = str(Path(__file__).parent.parent)
     env = {**os.environ}
+    env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
     env["MCP_ACCESS_TOKEN"] = mcp_token
-    env["OKTA_ISSUER"] = settings.OKTA_ISSUER
+    env["OKTA_ORG_URL"] = settings.OKTA_ORG_URL
     env["OKTA_MCP_RESOURCE_SERVER_ISSUER"] = settings.OKTA_MCP_RESOURCE_SERVER_ISSUER
     env["OKTA_MCP_AUDIENCE"] = settings.OKTA_MCP_AUDIENCE
     env["DATABASE_PATH"] = settings.DATABASE_PATH
@@ -267,7 +285,7 @@ async def run_agent(
 
                     # Next Claude call
                     pending_response = _anthropic.messages.create(
-                        model="claude-sonnet-4-6",
+                        model=settings.ANTHROPIC_MODEL,
                         max_tokens=2048,
                         system=SYSTEM_PROMPT,
                         tools=STATIC_TOOL_SCHEMAS,
@@ -284,9 +302,22 @@ async def run_agent(
                 break
 
     flow_events.append("Final response ready")
+
+    try:
+        id_claims = jose_jwt.get_unverified_claims(id_token)
+    except Exception:
+        id_claims = None
+
     return {
         "response": final_text.strip(),
         "tool_calls": tool_names_used,
         "flow_events": flow_events,
         "token_exchanges": token_exchanges,
+        "token_details": {
+            "oidc_client_id": settings.OKTA_CLIENT_ID,
+            "agent_client_id": settings.OKTA_SERVICE_CLIENT_ID,
+            "id_token_claims": id_claims,
+            "id_jag_claims": exchange_result.get("id_jag_claims"),
+            "access_token_claims": exchange_result.get("access_token_claims"),
+        },
     }

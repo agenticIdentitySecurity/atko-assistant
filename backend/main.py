@@ -84,17 +84,16 @@ async def login_page():
 @app.get("/auth/login")
 async def auth_login(request: Request):
     """Redirect browser to Okta authorization endpoint."""
-    url = okta.authorization_url(request)
+    url = await okta.authorization_url(request)
     return RedirectResponse(url=url)
 
 
-@app.post("/auth/callback")
+@app.get("/auth/callback")
 async def auth_callback(request: Request):
-    """Handle Okta callback (form_post response_mode)."""
-    form = await request.form()
-    code = form.get("code")
-    state = form.get("state")
-    error = form.get("error")
+    """Handle Okta callback (query response_mode)."""
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+    error = request.query_params.get("error")
 
     if error:
         raise HTTPException(status_code=400, detail=f"Okta error: {form.get('error_description', error)}")
@@ -110,7 +109,7 @@ async def auth_callback(request: Request):
     if not id_token:
         raise HTTPException(status_code=400, detail="No id_token in response")
 
-    claims = await okta.validate_id_token(id_token)
+    claims = await okta.validate_id_token(id_token, tokens.get("access_token"))
 
     request.session["user"] = {
         "sub": claims["sub"],
@@ -118,13 +117,25 @@ async def auth_callback(request: Request):
         "name": claims.get("name", claims.get("email", "")),
     }
     request.session["id_token"] = id_token
+    request.session["oidc_access_token"] = tokens.get("access_token", "")
 
     return RedirectResponse(url="/", status_code=303)
 
 
 @app.get("/auth/logout")
 async def auth_logout(request: Request):
+    id_token = request.session.get("id_token", "")
     request.session.clear()
+    # Redirect to Okta's logout endpoint to end the Okta session too
+    metadata = await okta._get_oidc_metadata()
+    end_session_endpoint = metadata.get("end_session_endpoint")
+    if end_session_endpoint and id_token:
+        from urllib.parse import urlencode
+        params = urlencode({
+            "id_token_hint": id_token,
+            "post_logout_redirect_uri": f"{request.base_url}login-page",
+        })
+        return RedirectResponse(url=f"{end_session_endpoint}?{params}")
     return RedirectResponse(url="/login-page")
 
 
@@ -144,6 +155,7 @@ async def chat(
     user: dict = Depends(require_user),
 ):
     id_token: str = request.session.get("id_token", "")
+    oidc_access_token: str = request.session.get("oidc_access_token", "")
     if not id_token:
         raise HTTPException(status_code=401, detail="Session missing ID token")
 
@@ -157,6 +169,7 @@ async def chat(
             message=body.message,
             history=body.conversation_history,
             id_token=id_token,
+            oidc_access_token=oidc_access_token,
             exchanger=exchanger,
             flow_events=flow_events,
             token_exchanges=token_exchanges,
@@ -178,6 +191,7 @@ async def chat(
         tool_calls=result["tool_calls"],
         flow_events=result.get("flow_events", []),
         token_exchanges=result.get("token_exchanges", []),
+        token_details=result.get("token_details"),
     )
 
 

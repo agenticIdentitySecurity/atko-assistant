@@ -4,8 +4,8 @@
 #   terraform output -raw okta_client_secret
 ###############################################################################
 
-output "okta_issuer" {
-  description = "Value for OKTA_ISSUER — the Org Authorization Server URL (no auth server path)"
+output "okta_org_url" {
+  description = "Value for OKTA_ORG_URL — the Org Authorization Server URL (no auth server path)"
   value       = "https://${var.okta_org_name}.${var.okta_base_url}"
 }
 
@@ -29,8 +29,8 @@ output "env_file_snippet" {
   description = "Ready-to-paste .env snippet (client_secret omitted — retrieve separately)"
   value       = <<-EOT
 
-    # ── Okta OIDC (consumer login) ──────────────────────────────────────
-    OKTA_ISSUER=https://${var.okta_org_name}.${var.okta_base_url}
+    # ── Okta Org AS (consumer login + ID-JAG exchange) ────────────────────
+    OKTA_ORG_URL=https://${var.okta_org_name}.${var.okta_base_url}
     OKTA_CLIENT_ID=${okta_app_oauth.atko_assistant_app.client_id}
     OKTA_CLIENT_SECRET=$(terraform output -raw okta_client_secret)
     OKTA_REDIRECT_URI=${var.redirect_uri}
@@ -38,6 +38,7 @@ output "env_file_snippet" {
     # ── Okta AI Agent (fill in after completing manual AI Agent steps) ──
     OKTA_SERVICE_CLIENT_ID=<paste AI Agent Client ID here>
     OKTA_SERVICE_KEY_PATH=./private_key.pem
+    OKTA_SERVICE_KEY_ID=<paste kid from AI Agent Credentials tab>
 
     # ── Frontier MCP Custom Auth Server ─────────────────────────────────
     OKTA_MCP_RESOURCE_SERVER_ISSUER=${okta_auth_server.frontier_mcp.issuer}

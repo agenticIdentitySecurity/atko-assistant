@@ -14,7 +14,7 @@ import os
 import sys
 
 import httpx
-from jose import jwt as jose_jwt
+from jose import jwk, jwt as jose_jwt
 
 from mcp.server.fastmcp import FastMCP
 
@@ -37,10 +37,7 @@ db = Database()
 
 def _validate_token_sync(token: str) -> dict:
     """Validate the MCP access token against Okta's JWKS endpoint (sync)."""
-    mcp_issuer = os.getenv(
-        "OKTA_MCP_RESOURCE_SERVER_ISSUER",
-        os.getenv("OKTA_ISSUER", ""),
-    )
+    mcp_issuer = os.getenv("OKTA_MCP_RESOURCE_SERVER_ISSUER", "")
     audience = os.getenv("OKTA_MCP_AUDIENCE", "api://mcp-resource-server")
 
     jwks_uri = f"{mcp_issuer}/v1/keys"
@@ -54,7 +51,7 @@ def _validate_token_sync(token: str) -> dict:
     pub_key = None
     for k in jwks.get("keys", []):
         if k.get("kid") == kid:
-            pub_key = jose_jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(k))
+            pub_key = jwk.construct(k)
             break
 
     if pub_key is None:

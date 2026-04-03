@@ -82,12 +82,17 @@ This is the application your consumers log into.
    - **Name**: `Atko Assistant Agent`
    - **Credentials**: Generate a new **RS256** key pair
 3. Download the **private key** as `private_key.pem` — store it securely, you cannot retrieve it again
-4. **Link to OIDC app**: On the agent detail page, link it to the `Atko Assistant` OIDC app created in Step 1
-5. Record:
+4. **Link to OIDC app**: On the agent detail page → **Linked applications** → link it to the `Atko Assistant` OIDC app
+5. **Add Managed connection**: On the agent detail page → **Managed connections** → **Add connection** → select `Frontier MCP` authorization server, set scopes to **All**
+
+   > **Critical**: Without this managed connection the Org AS returns `invalid_target` on token exchange. This authorizes the AI Agent to request tokens for the Frontier MCP resource server on behalf of users.
+
+6. Record:
 
 | Value | Environment Variable |
 |-------|---------------------|
 | Client ID shown on agent page | `OKTA_SERVICE_CLIENT_ID` |
+| Key ID (`kid`) on the Credentials tab | `OKTA_SERVICE_KEY_ID` |
 | Path to your downloaded PEM file | `OKTA_SERVICE_KEY_PATH` |
 
 ---
@@ -144,15 +149,16 @@ The issuer URI looks like: `https://dev-xxxxx.okta.com/oauth2/aus...`
 
 Before moving on, confirm you have all of these:
 
-- [ ] `OKTA_ISSUER` — your Okta org URL, **no auth server path** (e.g. `https://dev-xxxxx.okta.com`)
+- [ ] `OKTA_ORG_URL` — your Okta org URL, **no auth server path** (e.g. `https://dev-xxxxx.okta.com`)
 - [ ] `OKTA_CLIENT_ID` — from Step 1
 - [ ] `OKTA_CLIENT_SECRET` — from Step 1
 - [ ] `OKTA_SERVICE_CLIENT_ID` — from Step 2
+- [ ] `OKTA_SERVICE_KEY_ID` — key ID (`kid`) from the AI Agent Credentials tab
 - [ ] `OKTA_SERVICE_KEY_PATH` — local path to `private_key.pem` from Step 2
 - [ ] `OKTA_MCP_RESOURCE_SERVER_ISSUER` — from Step 3 (includes the auth server ID in the path)
 - [ ] `OKTA_MCP_AUDIENCE` — `api://mcp-resource-server` (default, unless you changed it)
 
-> **Critical**: `OKTA_ISSUER` must be the Org Authorization Server URL (e.g. `https://dev-xxxxx.okta.com`), **not** a Custom Authorization Server URL. Step 1 of the ID-JAG exchange always runs against the Org AS. If you use a Custom AS URL here, token exchange will fail with an issuer mismatch.
+> **Critical**: `OKTA_ORG_URL` must be the Org Authorization Server URL (e.g. `https://dev-xxxxx.okta.com`), **not** a Custom Authorization Server URL. Step 1 of the ID-JAG exchange always runs against the Org AS. If you use a Custom AS URL here, token exchange will fail with an `invalid_target` error.
 
 ---
 
@@ -238,15 +244,16 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-# Okta OIDC (consumer login) — Step 1
-OKTA_ISSUER=https://dev-xxxxx.okta.com        # Org AS — no auth server path
+# Okta Org AS (consumer login) — Step 1
+OKTA_ORG_URL=https://dev-xxxxx.okta.com        # Org AS — no /oauth2/... path
 OKTA_CLIENT_ID=0oa...
 OKTA_CLIENT_SECRET=...
 OKTA_REDIRECT_URI=http://localhost:8000/auth/callback
 
 # Okta AI Agent — Step 2
-OKTA_SERVICE_CLIENT_ID=0oa...
+OKTA_SERVICE_CLIENT_ID=wlp...
 OKTA_SERVICE_KEY_PATH=./private_key.pem        # path to the PEM file you downloaded
+OKTA_SERVICE_KEY_ID=<kid-from-credentials-tab> # key ID from AI Agent Credentials tab
 
 # Frontier MCP Custom Auth Server — Step 3
 OKTA_MCP_RESOURCE_SERVER_ISSUER=https://dev-xxxxx.okta.com/oauth2/aus...
@@ -254,6 +261,8 @@ OKTA_MCP_AUDIENCE=api://mcp-resource-server
 
 # Claude / Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_BASE_URL=https://llm.your-company.ai # optional: LiteLLM proxy or gateway
+ANTHROPIC_MODEL=claude-sonnet-4-6              # model name (may differ behind a proxy)
 
 # Session (generate with: python -c "import secrets; print(secrets.token_hex(32))")
 SESSION_SECRET_KEY=<random-64-char-hex>
@@ -333,15 +342,18 @@ This demonstrates live governance: access can be revoked in Okta without touchin
 
 | Variable | Required | Description | Where to find it |
 |----------|----------|-------------|-----------------|
-| `OKTA_ISSUER` | Yes | Okta Org AS URL — **no auth server path** | Your Okta org URL (e.g. `https://dev-xxxxx.okta.com`) |
+| `OKTA_ORG_URL` | Yes | Okta Org AS URL — **no `/oauth2/...` path** | Your Okta org URL (e.g. `https://dev-xxxxx.okta.com`) |
 | `OKTA_CLIENT_ID` | Yes | OIDC app client ID | Applications → your app → Client ID |
 | `OKTA_CLIENT_SECRET` | Yes | OIDC app client secret | Applications → your app → Client Secrets |
 | `OKTA_REDIRECT_URI` | Yes | OAuth callback URL | Set to `http://localhost:8000/auth/callback` |
 | `OKTA_SERVICE_CLIENT_ID` | Yes | AI Agent client ID | Directory → AI Agents → your agent → Client ID |
+| `OKTA_SERVICE_KEY_ID` | Yes | Key ID (`kid`) for the AI Agent RS256 key | Directory → AI Agents → your agent → Credentials tab |
 | `OKTA_SERVICE_KEY_PATH` | Yes | Path to RS256 private key PEM | Where you saved the downloaded key |
 | `OKTA_MCP_RESOURCE_SERVER_ISSUER` | Yes | Frontier MCP Custom AS issuer URL | Security → API → Frontier MCP → Issuer URI |
 | `OKTA_MCP_AUDIENCE` | Yes | Frontier MCP token audience | `api://mcp-resource-server` (default) |
 | `ANTHROPIC_API_KEY` | Yes | Claude API key | console.anthropic.com |
+| `ANTHROPIC_BASE_URL` | No | LiteLLM proxy or gateway URL | Default: Anthropic direct API |
+| `ANTHROPIC_MODEL` | No | Model name | Default: `claude-sonnet-4-6` |
 | `SESSION_SECRET_KEY` | Yes | Cookie signing secret (32+ chars) | Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `DATABASE_PATH` | No | SQLite file path | Default: `./ai_agent.db` |
 | `MCP_SERVER_SCRIPT` | No | Path to MCP server script | Default: `mcp_server/server.py` |
@@ -391,12 +403,12 @@ This demonstrates live governance: access can be revoked in Okta without touchin
 
 ### Issuer mismatch / token exchange fails with invalid issuer
 
-**Cause**: `OKTA_ISSUER` is set to a Custom Authorization Server URL instead of the Org AS.
+**Cause**: `OKTA_ORG_URL` is set to a Custom Authorization Server URL instead of the Org AS.
 
 **Fix**:
-- `OKTA_ISSUER` must be the bare org URL: `https://dev-xxxxx.okta.com`
+- `OKTA_ORG_URL` must be the bare org URL: `https://dev-xxxxx.okta.com`
 - It must NOT contain `/oauth2/default` or any other auth server path
-- Step 1 of the ID-JAG exchange always runs against `{OKTA_ISSUER}/v1/token`
+- Step 1 of the ID-JAG exchange discovers the Org AS token endpoint via `{OKTA_ORG_URL}/.well-known/oauth-authorization-server`
 
 ---
 
@@ -451,7 +463,8 @@ Items marked **(manual only)** cannot be automated via Terraform and must be don
 
 - [ ] `.env` file created from `.env.example` with all values filled
 - [ ] `private_key.pem` accessible at the path in `OKTA_SERVICE_KEY_PATH`
-- [ ] `OKTA_ISSUER` is the Org AS URL (no `/oauth2/...` path)
+- [ ] `OKTA_ORG_URL` is the Org AS URL (no `/oauth2/...` path)
+- [ ] `OKTA_SERVICE_KEY_ID` matches the `kid` on the AI Agent Credentials tab
 - [ ] `uvicorn backend.main:app --reload` starts without errors
 - [ ] *(Option B only)* `terraform apply` completed successfully; `terraform output env_file_snippet` used to populate `.env`
 

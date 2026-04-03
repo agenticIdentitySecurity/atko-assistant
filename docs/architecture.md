@@ -112,7 +112,7 @@ Consumer logs in via Org Authorization Server
 │  of <Consumer>". Establishes delegation.                   │
 │                                                            │
 │  IMPORTANT: Step 1 always happens at the Org AS.           │
-│  This is why OKTA_ISSUER must be the Org AS URL.           │
+│  This is why OKTA_ORG_URL must be the Org AS URL.          │
 └────────────────────────────────────────────────────────────┘
      │
      ▼
@@ -158,11 +158,14 @@ Phase A — First LLM call (no MCP, no token exchange yet)
   If NO → return answer directly (zero Okta calls, zero MCP subprocess)
   If YES → proceed to Phase B
 
-Phase B — Lazy Cross-App Access
+Phase B — Lazy Cross-App Access (okta-client-python SDK)
 ─────────────────────────────────────────────────────────
-  CrossAppAccessFlow executes:
+  CrossAppAccessFlow (from okta_client.oauth2auth) executes:
     flow.start(id_token)  →  ID-JAG (Step 1 at Org AS)
     flow.resume()         →  MCP access token (Step 2 at Frontier MCP AS)
+
+  The SDK handles JWT assertion signing, metadata discovery, and
+  audience routing automatically via LocalKeyProvider + JWTBearerClaims.
 
   Token is cached per consumer sub for 1 hour (TokenExchanger._cache)
 
@@ -214,17 +217,18 @@ The OAuth/OIDC app that consumers log into.
 ### AI Agent (Directory → AI Agents)
 Registered in Okta's AI Agent Directory. Represents Atko Assistant's identity.
 
-- **Authentication**: RS256 JWK private key (no client secret)
+- **Authentication**: RS256 JWK private key (no client secret), identified by `OKTA_SERVICE_KEY_ID`
 - **Purpose**: Performs the CrossAppAccessFlow on behalf of the consumer
 - **Must be linked** to the OIDC application above
+- **Must have a managed connection** to the Frontier MCP authorization server (authorizes the agent to request tokens for that resource)
 - **Must be added** to "Assigned clients" on the Frontier MCP auth server policy
 
 ### Org Authorization Server
 The main Okta authorization server (no custom path).
 
-- **URL**: `https://your-org.okta.com` (configured as `OKTA_ISSUER`)
-- **Role**: Step 1 of token exchange — issues the ID-JAG
-- **Critical**: Users **must** log in via this server. Do not use a Custom AS URL as `OKTA_ISSUER`.
+- **URL**: `https://your-org.okta.com` (configured as `OKTA_ORG_URL`)
+- **Role**: OIDC login (issues ID token) and Step 1 of token exchange (issues ID-JAG)
+- **Critical**: Users **must** log in via this server. Do not use a Custom AS URL as `OKTA_ORG_URL`.
 
 ### Frontier MCP Custom Authorization Server
 A dedicated Okta Custom Authorization Server for the Frontier DB resource.

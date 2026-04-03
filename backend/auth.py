@@ -4,7 +4,6 @@ Uses plain httpx — no extra Okta SDK needed for the web-app OIDC flow.
 """
 import base64
 import hashlib
-import json
 import logging
 import os
 import secrets
@@ -13,7 +12,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import HTTPException, Request
-from jose import JWTError, jwt
+from jose import JWTError, jwt, jwk
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +20,24 @@ logger = logging.getLogger(__name__)
 class OktaAuth:
     def __init__(self, settings):
         self.s = settings
+        self._oidc_metadata: dict | None = None
         self._jwks_cache: dict | None = None
         self._jwks_expires_at: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Metadata discovery — cache OIDC endpoints on first use
+    # ------------------------------------------------------------------
+
+    async def _get_oidc_metadata(self) -> dict:
+        if self._oidc_metadata is None:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{self.s.OKTA_ORG_URL}/.well-known/openid-configuration",
+                    timeout=10,
+                )
+                resp.raise_for_status()
+            self._oidc_metadata = resp.json()
+        return self._oidc_metadata
 
     # ------------------------------------------------------------------
     # PKCE helpers
@@ -38,7 +53,10 @@ class OktaAuth:
     # Step 1 — build redirect URL
     # ------------------------------------------------------------------
 
-    def authorization_url(self, request: Request) -> str:
+    async def authorization_url(self, request: Request) -> str:
+        metadata = await self._get_oidc_metadata()
+        authorize_endpoint = metadata["authorization_endpoint"]
+
         verifier, challenge = self._pkce_pair()
         state = secrets.token_urlsafe(24)
 
@@ -49,23 +67,26 @@ class OktaAuth:
         params = {
             "client_id": self.s.OKTA_CLIENT_ID,
             "response_type": "code",
-            "response_mode": "form_post",
+            "response_mode": "query",
             "redirect_uri": self.s.OKTA_REDIRECT_URI,
             "scope": "openid profile email",
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         }
-        return f"{self.s.OKTA_ISSUER}/v1/authorize?{urlencode(params)}"
+        return f"{authorize_endpoint}?{urlencode(params)}"
 
     # ------------------------------------------------------------------
     # Step 2 — exchange code for tokens
     # ------------------------------------------------------------------
 
     async def exchange_code(self, code: str, verifier: str) -> dict:
+        metadata = await self._get_oidc_metadata()
+        token_endpoint = metadata["token_endpoint"]
+
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                f"{self.s.OKTA_ISSUER}/v1/token",
+                token_endpoint,
                 data={
                     "grant_type": "authorization_code",
                     "client_id": self.s.OKTA_CLIENT_ID,
@@ -89,14 +110,19 @@ class OktaAuth:
         now = time.time()
         if self._jwks_cache and now < self._jwks_expires_at:
             return self._jwks_cache
+        metadata = await self._get_oidc_metadata()
+        jwks_uri = metadata["jwks_uri"]
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{self.s.OKTA_ISSUER}/v1/keys", timeout=10)
+            resp = await client.get(jwks_uri, timeout=10)
             resp.raise_for_status()
         self._jwks_cache = resp.json()
         self._jwks_expires_at = now + 3600
         return self._jwks_cache
 
-    async def validate_id_token(self, id_token: str) -> dict:
+    async def validate_id_token(self, id_token: str, access_token: str | None = None) -> dict:
+        metadata = await self._get_oidc_metadata()
+        issuer = metadata["issuer"]
+
         try:
             header = jwt.get_unverified_header(id_token)
             kid = header.get("kid")
@@ -105,7 +131,7 @@ class OktaAuth:
             pub_key = None
             for k in jwks.get("keys", []):
                 if k.get("kid") == kid:
-                    pub_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(k))
+                    pub_key = jwk.construct(k)
                     break
 
             if pub_key is None:
@@ -116,7 +142,8 @@ class OktaAuth:
                 pub_key,
                 algorithms=["RS256"],
                 audience=self.s.OKTA_CLIENT_ID,
-                issuer=self.s.OKTA_ISSUER,
+                issuer=issuer,
+                access_token=access_token,
             )
             return claims
         except JWTError as exc:

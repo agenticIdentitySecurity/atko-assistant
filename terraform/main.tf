@@ -7,7 +7,7 @@ locals {
 resource "okta_app_oauth" "atko_assistant_app" {
   label                     = "Atko Assistant"
   type                      = "web"
-  grant_types               = ["authorization_code", "refresh_token"]
+  grant_types               = ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"]
   redirect_uris             = [var.redirect_uri]
   post_logout_redirect_uris = ["${var.app_base_url}/login-page"]
   response_types            = ["code"]

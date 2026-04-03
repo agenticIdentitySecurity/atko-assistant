@@ -24,8 +24,17 @@ class TokenExchange(BaseModel):
     demo_mode: bool = False
 
 
+class TokenDetails(BaseModel):
+    oidc_client_id: str | None = None
+    agent_client_id: str | None = None
+    id_token_claims: dict | None = None
+    id_jag_claims: dict | None = None
+    access_token_claims: dict | None = None
+
+
 class ChatResponse(BaseModel):
     response: str
     tool_calls: list[str] = []
     flow_events: list[str] = []
     token_exchanges: list[TokenExchange] = []
+    token_details: TokenDetails | None = None

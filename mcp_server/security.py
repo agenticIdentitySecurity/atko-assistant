@@ -12,7 +12,7 @@ class TokenValidator:
     """Validate JWTs issued by Okta's MCP resource server authorization server."""
 
     def __init__(self):
-        self.issuer: str = os.getenv("OKTA_ISSUER", "")
+        self.issuer: str = os.getenv("OKTA_MCP_RESOURCE_SERVER_ISSUER", "")
         self.audience: str = os.getenv("OKTA_MCP_AUDIENCE", "api://mcp-resource-server")
         self._jwks_cache: dict | None = None
         self._jwks_expires_at: float = 0.0
@@ -52,7 +52,7 @@ class TokenValidator:
                 pub_key,
                 algorithms=["RS256"],
                 audience=self.audience,
-                issuer=os.getenv("OKTA_MCP_RESOURCE_SERVER_ISSUER", self.issuer),
+                issuer=self.issuer,
             )
             logger.info("Token valid for sub=%s", claims.get("sub"))
             return claims

@@ -1,6 +1,6 @@
-/* AI Agent Chat — vanilla JS client */
+/* Atko Assistant — vanilla JS client */
 
-let history = [];
+let chatHistory = [];
 let loading = false;
 
 // ---------------------------------------------------------------------------
@@ -13,11 +13,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!res.ok) { window.location.href = '/login-page'; return; }
     const user = await res.json();
     const nameEl = document.getElementById('user-name');
-    if (nameEl) {
+    const badgeEl = document.getElementById('user-badge');
+    if (nameEl && badgeEl) {
       nameEl.textContent = user.name || user.email;
-      nameEl.classList.remove('hidden');
+      badgeEl.classList.remove('hidden');
+      badgeEl.classList.add('flex');
     }
-  } catch {
+  } catch (e) {
     window.location.href = '/login-page';
   }
   document.getElementById('input').focus();
@@ -38,16 +40,9 @@ async function send() {
 
   input.value = '';
   setLoading(true);
-
-  // Reset side panels for new request
-  document.getElementById('flow-events').innerHTML =
-    '<p class="text-[11px] text-slate-400 text-center mt-4">Processing…</p>';
-  document.getElementById('token-exchanges').innerHTML =
-    '<p class="text-[11px] text-slate-400 text-center mt-2">Processing…</p>';
-  document.getElementById('token-summary').classList.add('hidden');
+  resetInspector();
 
   appendMessage('user', msg);
-
   const thinkingId = appendThinking();
 
   try {
@@ -56,7 +51,7 @@ async function send() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: msg,
-        conversation_history: history,
+        conversation_history: chatHistory,
       }),
     });
 
@@ -64,25 +59,26 @@ async function send() {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-      appendMessage('assistant', `⚠️ Error: ${err.detail || res.statusText}`);
+      appendMessage('assistant', `Error: ${err.detail || res.statusText}`);
       renderFlowEvents(err.flow_events || []);
-      renderTokenExchanges(err.token_exchanges || []);
+      renderTokenDetails(err.token_details);
       return;
     }
 
     const data = await res.json();
     appendMessage('assistant', data.response, data.tool_calls);
     renderFlowEvents(data.flow_events || []);
-    renderTokenExchanges(data.token_exchanges || []);
+    renderToolCalls(data.tool_calls || []);
+    renderTokenDetails(data.token_details);
 
     // Keep last 20 turns in history
-    history.push({ role: 'user', content: msg });
-    history.push({ role: 'assistant', content: data.response });
-    if (history.length > 40) history = history.slice(-40);
+    chatHistory.push({ role: 'user', content: msg });
+    chatHistory.push({ role: 'assistant', content: data.response });
+    if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
 
   } catch (err) {
     removeThinking(thinkingId);
-    appendMessage('assistant', `⚠️ Network error: ${err.message}`);
+    appendMessage('assistant', `Network error: ${err.message}`);
   } finally {
     setLoading(false);
     document.getElementById('input').focus();
@@ -95,11 +91,8 @@ async function send() {
 
 function appendMessage(role, text, toolCalls = []) {
   const list = document.getElementById('message-list');
-
   const wrapper = document.createElement('div');
-  wrapper.className = role === 'user'
-    ? 'flex justify-end'
-    : 'flex justify-start';
+  wrapper.className = role === 'user' ? 'flex justify-end' : 'flex justify-start';
 
   const bubble = document.createElement('div');
   if (role === 'user') {
@@ -108,11 +101,10 @@ function appendMessage(role, text, toolCalls = []) {
   } else {
     bubble.className = 'bg-white rounded-2xl rounded-tl-sm shadow-sm px-4 py-3 max-w-xl text-sm text-gray-800 prose';
     bubble.innerHTML = formatText(text);
-
     if (toolCalls && toolCalls.length > 0) {
       const tag = document.createElement('p');
       tag.className = 'mt-2 text-xs text-gray-400';
-      tag.textContent = `🔧 Tools used: ${toolCalls.join(', ')}`;
+      tag.textContent = `Tools used: ${toolCalls.join(', ')}`;
       bubble.appendChild(tag);
     }
   }
@@ -125,16 +117,13 @@ function appendMessage(role, text, toolCalls = []) {
 function appendThinking() {
   const id = 'thinking-' + Date.now();
   const list = document.getElementById('message-list');
-
   const wrapper = document.createElement('div');
   wrapper.id = id;
   wrapper.className = 'flex justify-start';
-
   wrapper.innerHTML = `
     <div class="bg-white rounded-2xl rounded-tl-sm shadow-sm px-4 py-3 text-sm text-gray-400 dot-blink">
       Thinking<span>.</span><span>.</span><span>.</span>
     </div>`;
-
   list.appendChild(wrapper);
   scrollBottom();
   return id;
@@ -160,111 +149,179 @@ function logout() {
 }
 
 // ---------------------------------------------------------------------------
+// Token Inspector — accordion
+// ---------------------------------------------------------------------------
+
+function toggleSection(id) {
+  const body = document.getElementById('body-' + id);
+  const chevron = document.getElementById('chevron-' + id);
+  if (!body) return;
+  body.classList.toggle('hidden');
+  if (chevron) chevron.classList.toggle('rotate-180');
+}
+
+function expandSection(id) {
+  const body = document.getElementById('body-' + id);
+  const chevron = document.getElementById('chevron-' + id);
+  if (!body) return;
+  body.classList.remove('hidden');
+  if (chevron) chevron.classList.add('rotate-180');
+}
+
+function resetInspector() {
+  // Reset all claim sections to placeholder
+  setPlaceholder('id-token-claims', 'Awaiting login data');
+  setPlaceholder('id-jag-claims', 'No exchange yet');
+  setPlaceholder('access-token-claims', 'No exchange yet');
+  setPlaceholder('tool-calls-list', 'No tools called');
+  document.getElementById('flow-events').innerHTML =
+    '<p class="text-[11px] text-slate-400 italic">Processing...</p>';
+  // Collapse all sections
+  ['id-token', 'id-jag', 'access-token', 'tool-calls', 'identity-flow'].forEach(id => {
+    const body = document.getElementById('body-' + id);
+    const chevron = document.getElementById('chevron-' + id);
+    if (body) body.classList.add('hidden');
+    if (chevron) chevron.classList.remove('rotate-180');
+  });
+}
+
+function setPlaceholder(elId, text) {
+  const el = document.getElementById(elId);
+  if (el) el.innerHTML = `<p class="text-slate-400 italic">${text}</p>`;
+}
+
+// ---------------------------------------------------------------------------
+// Render token claims
+// ---------------------------------------------------------------------------
+
+function renderTokenDetails(details) {
+  if (!details) return;
+
+  // Client IDs
+  if (details.oidc_client_id || details.agent_client_id) {
+    const wrap = document.getElementById('client-ids');
+    if (wrap) wrap.classList.remove('hidden');
+    const oidcEl = document.getElementById('oidc-client-id');
+    const agentEl = document.getElementById('agent-client-id');
+    if (oidcEl) oidcEl.textContent = details.oidc_client_id || '';
+    if (agentEl) agentEl.textContent = details.agent_client_id || '';
+  }
+
+  if (details.id_token_claims) {
+    renderClaims('id-token-claims', details.id_token_claims);
+    expandSection('id-token');
+  }
+  if (details.id_jag_claims) {
+    renderClaims('id-jag-claims', details.id_jag_claims);
+    expandSection('id-jag');
+  }
+  if (details.access_token_claims) {
+    renderClaims('access-token-claims', details.access_token_claims);
+    expandSection('access-token');
+  }
+}
+
+const KEY_CLAIMS = ['sub', 'iss', 'aud', 'exp', 'iat', 'scp', 'scope', 'act', 'name', 'email', 'cid'];
+
+function renderClaims(elId, claims) {
+  const el = document.getElementById(elId);
+  if (!el || !claims) return;
+
+  // Key claims summary
+  const keyRows = Object.entries(claims)
+    .filter(([k]) => KEY_CLAIMS.includes(k))
+    .map(([key, val]) => {
+      const display = formatClaimValue(key, val);
+      return `<div class="flex justify-between gap-2 py-0.5">
+        <span class="text-slate-500 shrink-0">${key}</span>
+        <span class="font-mono text-slate-700 text-right truncate" title="${escapeAttr(String(val))}">${display}</span>
+      </div>`;
+    }).join('');
+
+  // Raw JSON toggle
+  const rawId = elId + '-raw';
+  const rawJson = escapeAttr(JSON.stringify(claims, null, 2))
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+  el.innerHTML = (keyRows || '<p class="text-slate-400 italic">No claims</p>') +
+    `<div class="mt-1.5 border-t border-slate-200 pt-1.5">
+      <button onclick="document.getElementById('${rawId}').classList.toggle('hidden')" class="text-[10px] text-blue-500 hover:text-blue-700 font-medium">
+        Show/hide raw JSON
+      </button>
+      <pre id="${rawId}" class="hidden mt-1 p-2 bg-slate-900 text-slate-200 rounded text-[10px] overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">${escapeHtml(JSON.stringify(claims, null, 2))}</pre>
+    </div>`;
+}
+
+function formatClaimValue(key, val) {
+  // Timestamps
+  if ((key === 'exp' || key === 'iat') && typeof val === 'number' && val > 1e9) {
+    const d = new Date(val * 1000);
+    return d.toLocaleTimeString() + ' ' + d.toLocaleDateString();
+  }
+  // Arrays (scopes)
+  if (Array.isArray(val)) return val.join(', ');
+  // Objects (like act)
+  if (typeof val === 'object' && val !== null) {
+    return Object.entries(val).map(([k, v]) => `${k}:${v}`).join(', ');
+  }
+  // Long strings
+  const s = String(val);
+  if (s.length > 35) return s.slice(0, 35) + '...';
+  return s;
+}
+
+function escapeAttr(s) {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ---------------------------------------------------------------------------
+// Render tool calls
+// ---------------------------------------------------------------------------
+
+function renderToolCalls(toolCalls) {
+  const el = document.getElementById('tool-calls-list');
+  if (!el) return;
+
+  if (!toolCalls || toolCalls.length === 0) {
+    el.innerHTML = '<p class="text-slate-400 italic">No tools called</p>';
+    return;
+  }
+
+  const pills = toolCalls.map(t =>
+    `<span class="inline-block px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 font-mono">${t}</span>`
+  ).join(' ');
+
+  el.innerHTML = pills;
+  expandSection('tool-calls');
+}
+
+// ---------------------------------------------------------------------------
 // Identity Flow panel
 // ---------------------------------------------------------------------------
 
 function renderFlowEvents(events) {
   const panel = document.getElementById('flow-events');
+  if (!panel) return;
   panel.innerHTML = '';
+
   if (!events.length) {
-    panel.innerHTML = '<p class="text-[11px] text-slate-400 text-center mt-4">Send a message to see the<br/>Okta token flow in action.</p>';
+    panel.innerHTML = '<p class="text-[11px] text-slate-400 italic">Send a message to see the flow</p>';
     return;
   }
+
   events.forEach((evt, i) => {
     const div = document.createElement('div');
-    div.className = 'flow-step text-[11px] px-3 py-2 rounded border step-ok';
+    div.className = 'flow-step text-[11px] px-2 py-1.5 rounded border step-ok';
     div.style.animationDelay = `${i * 0.08}s`;
-    div.textContent = `✓  ${evt}`;
+    div.textContent = `\u2713  ${evt}`;
     panel.appendChild(div);
   });
-}
 
-// ---------------------------------------------------------------------------
-// Token Exchange panel
-// ---------------------------------------------------------------------------
-
-function renderTokenExchanges(exchanges) {
-  const panel     = document.getElementById('token-exchanges');
-  const summary   = document.getElementById('token-summary');
-  const grantedEl = document.getElementById('token-granted-count');
-  const deniedEl  = document.getElementById('token-denied-count');
-  panel.innerHTML = '';
-
-  if (!exchanges.length) {
-    panel.innerHTML = '<p class="text-[11px] text-slate-400 text-center mt-2">No exchanges yet.</p>';
-    summary.classList.add('hidden');
-    return;
-  }
-
-  const granted = exchanges.filter(e => e.success && !e.access_denied);
-  const denied  = exchanges.filter(e => e.access_denied || !e.success);
-
-  summary.classList.remove('hidden');
-  grantedEl.textContent = `✓ ${granted.length} Granted`;
-  if (denied.length > 0) {
-    deniedEl.classList.remove('hidden');
-    deniedEl.textContent = `✗ ${denied.length} Denied`;
-  } else {
-    deniedEl.classList.add('hidden');
-  }
-
-  exchanges.forEach(ex => {
-    const isGranted = ex.success && !ex.access_denied;
-    const card = document.createElement('div');
-    card.className = isGranted
-      ? 'rounded-lg border-2 p-3 border-green-300 bg-green-50'
-      : 'rounded-lg border-2 p-3 border-red-300 bg-red-50';
-
-    const scopesToShow = isGranted
-      ? (ex.scopes || [])
-      : (ex.requested_scopes && ex.requested_scopes.length ? ex.requested_scopes : ex.scopes || []);
-    const scopeLabel = isGranted ? 'Granted scope:' : 'Requested scope:';
-    const scopeClass = isGranted
-      ? 'bg-green-100 text-green-700 border border-green-300'
-      : 'bg-red-100 text-red-600 border border-red-300';
-
-    const avatarLetter = (ex.agent || 'F').charAt(0).toUpperCase();
-    const agentColor   = ex.color || '#6366f1';
-    const agentName    = ex.agent_name || 'Frontier MCP';
-    const exchangeType = ex.demo_mode ? 'Demo Mode' : 'ID-JAG Exchange';
-    const badgeClass   = isGranted ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600';
-    const badgeText    = isGranted ? '✓ Granted' : '✗ Denied';
-
-    const scopePills = scopesToShow
-      .map(s => `<span class="px-2 py-0.5 text-[10px] rounded-full font-mono ${scopeClass}">${s}</span>`)
-      .join('');
-
-    const scopeBlock = scopesToShow.length ? `
-      <div class="mt-1">
-        <div class="text-[9px] text-slate-500 uppercase tracking-wide mb-1">${scopeLabel}</div>
-        <div class="flex flex-wrap gap-1">${scopePills}</div>
-      </div>` : '';
-
-    const policyBlock = !isGranted ? `
-      <div class="mt-2 flex items-center gap-1 text-[10px] text-slate-500">
-        <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.955 11.955 0 003 12c0 6.627 5.373 12 12 12s12-5.373 12-12c0-2.25-.619-4.356-1.698-6.162M12 2.964z"/>
-        </svg>
-        Blocked by Okta governance policy
-      </div>` : '';
-
-    card.innerHTML = `
-      <div class="flex items-start justify-between mb-2">
-        <div class="flex items-center gap-2">
-          <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold"
-               style="background:${agentColor}">${avatarLetter}</div>
-          <div>
-            <div class="text-xs font-semibold text-slate-800">${agentName}</div>
-            <div class="text-[10px] text-slate-400">${exchangeType}</div>
-          </div>
-        </div>
-        <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}">${badgeText}</span>
-      </div>
-      ${scopeBlock}${policyBlock}`;
-
-    panel.appendChild(card);
-  });
+  expandSection('identity-flow');
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +329,6 @@ function renderTokenExchanges(exchanges) {
 // ---------------------------------------------------------------------------
 
 function formatText(text) {
-  // Escape HTML first
   let html = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -290,7 +346,7 @@ function formatText(text) {
   // Bold **...**
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-  // Bullet lists (lines starting with - or *)
+  // Bullet lists
   const lines = html.split('\n');
   let inList = false;
   const out = [];
@@ -305,6 +361,5 @@ function formatText(text) {
     }
   }
   if (inList) out.push('</ul>');
-
   return out.join('');
 }
