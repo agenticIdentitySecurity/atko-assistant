@@ -157,3 +157,103 @@ class TokenExchanger:
                 status_code=502,
                 detail=f"Token exchange failed: {exc}",
             ) from exc
+
+    # ------------------------------------------------------------------
+    # Service Account — ROPG flow for elevated access
+    # ------------------------------------------------------------------
+
+    async def exchange_service_account(self, scopes: list[str] | None = None) -> dict:
+        """Get an elevated MCP token via Resource Owner Password Grant + XAA.
+
+        1. ROPG at Org AS with service account creds → id_token
+        2. XAA: id_token → ID-JAG → elevated access_token at Custom AS
+
+        Returns same dict shape as exchange().
+        """
+        if scopes is None:
+            scopes = ["frontier:elevated"]
+
+        cache_key = f"svc:{','.join(scopes)}"
+        cached = self._cache.get(cache_key)
+        if cached and cached["expires_at"] > datetime.utcnow():
+            logger.info("Using cached service account token")
+            return cached["result"]
+
+        logger.info("Service Account ROPG flow (scopes=%s)", scopes)
+
+        try:
+            org_token_endpoint = await self._get_org_token_endpoint()
+
+            # Step 0: ROPG — get id_token for the service account
+            logger.info("ROPG: authenticating service account at Org AS")
+            async with httpx.AsyncClient() as http:
+                resp = await http.post(
+                    org_token_endpoint,
+                    data={
+                        "grant_type": "password",
+                        "username": self.s.SERVICE_ACCOUNT_USERNAME,
+                        "password": self.s.SERVICE_ACCOUNT_PASSWORD,
+                        "client_id": self.s.OKTA_CLIENT_ID,
+                        "client_secret": self.s.OKTA_CLIENT_SECRET,
+                        "scope": "openid",
+                    },
+                    timeout=15,
+                )
+            if resp.status_code != 200:
+                err = resp.json().get("error_description", resp.text)
+                raise Exception(f"ROPG failed: {err}")
+
+            ropg_tokens = resp.json()
+            svc_id_token = ropg_tokens.get("id_token")
+            if not svc_id_token:
+                raise Exception("ROPG response missing id_token")
+
+            svc_id_claims = self._extract_claims(svc_id_token)
+            logger.info("ROPG succeeded for sub=%s", svc_id_claims.get("sub") if svc_id_claims else "?")
+
+            # Steps 1-2: XAA with the service account's id_token
+            agent_client = self._build_agent_client(audience=org_token_endpoint)
+            target = CrossAppAccessTarget(
+                issuer=self.s.OKTA_MCP_RESOURCE_SERVER_ISSUER,
+            )
+            flow = CrossAppAccessFlow(client=agent_client, target=target)
+
+            logger.info("XAA step 1: svc id_token → ID-JAG at Org AS")
+            await flow.start(
+                token=svc_id_token,
+                token_type="id_token",
+                scope=scopes,
+            )
+
+            id_jag_claims = None
+            ctx = flow._context
+            if ctx and ctx.id_jag_token:
+                id_jag_claims = self._extract_claims(ctx.id_jag_token.access_token)
+
+            logger.info("XAA step 2: ID-JAG → elevated access_token at Custom AS")
+            token = await flow.resume()
+
+            access_token = token.access_token
+            access_token_claims = self._extract_claims(access_token)
+            logger.info("Service Account XAA succeeded")
+
+            result = {
+                "access_token": access_token,
+                "id_token_claims": svc_id_claims,
+                "id_jag_claims": id_jag_claims,
+                "access_token_claims": access_token_claims,
+            }
+            self._cache[cache_key] = {
+                "result": result,
+                "expires_at": datetime.utcnow() + timedelta(hours=1),
+            }
+            return result
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Service Account flow failed: %s", exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Service account token exchange failed: {exc}",
+            ) from exc

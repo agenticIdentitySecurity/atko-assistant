@@ -28,9 +28,13 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """\
 You are Atko Assistant, a helpful AI assistant with access to a customer database (Frontier DB).
 Use the provided tools to look up customers, orders, and products when needed.
+You can also add streaming subscriptions (e.g. Paramount+, Netflix) for customers using the add_subscription tool.
 Always present data clearly and concisely.
 If you need multiple pieces of information, call the appropriate tools in sequence.
 """
+
+# Tools that require elevated (service account) access via ROPG
+ELEVATED_TOOLS = {"add_subscription"}
 
 _anthropic = anthropic.Anthropic(
     api_key=settings.ANTHROPIC_API_KEY,
@@ -112,6 +116,27 @@ STATIC_TOOL_SCHEMAS = [
             "required": ["search_term"],
         },
     },
+    {
+        "name": "add_subscription",
+        "description": (
+            "Add a streaming subscription for a customer. Requires elevated service account access.\n\n"
+            "Args:\n"
+            "    customer_id: The customer's ID.\n"
+            "    service_name: Name of the service (e.g., 'Paramount+', 'Netflix').\n"
+            "    plan: Subscription plan (e.g., 'Basic', 'Premium').\n\n"
+            "Returns:\n"
+            "    JSON object confirming the subscription was added."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {"type": "integer"},
+                "service_name": {"type": "string"},
+                "plan": {"type": "string"},
+            },
+            "required": ["customer_id", "service_name"],
+        },
+    },
 ]
 
 
@@ -182,12 +207,25 @@ async def run_agent(
 
     # ------------------------------------------------------------------
     # Phase B — Lazy Cross-App Access token exchange
+    # Detect if any tool requires elevated access → use ROPG service account
     # ------------------------------------------------------------------
-    flow_events.append("Cross-App Access requested")
-    logger.info("Performing token exchange (Cross-App Access)")
+    needs_elevated = bool(set(tool_names_in_first) & ELEVATED_TOOLS)
+
+    if needs_elevated:
+        flow_events.append("Elevated access required — Service Account ROPG")
+        logger.info("Elevated tool detected, using service account ROPG flow")
+        requested_scopes = ["frontier:elevated"]
+    else:
+        flow_events.append("Cross-App Access requested")
+        requested_scopes = ["frontier:read"]
+
+    logger.info("Performing token exchange (scopes=%s)", requested_scopes)
 
     try:
-        exchange_result = await exchanger.exchange(id_token, oidc_access_token)
+        if needs_elevated:
+            exchange_result = await exchanger.exchange_service_account(scopes=requested_scopes)
+        else:
+            exchange_result = await exchanger.exchange(id_token, oidc_access_token)
         mcp_token = exchange_result["access_token"]
     except HTTPException as exc:
         token_exchanges.append({
@@ -198,26 +236,30 @@ async def run_agent(
             "access_denied": True,
             "status": "denied",
             "scopes": [],
-            "requested_scopes": ["frontier:read"],
+            "requested_scopes": requested_scopes,
             "error": exc.detail,
             "demo_mode": False,
         })
         flow_events.append("Token exchange denied by Okta governance policy")
         raise
 
+    exchange_label = "Service Account ROPG → XAA" if needs_elevated else "Consumer XAA"
     token_exchanges.append({
         "agent": "frontier_mcp",
         "agent_name": "Frontier MCP",
-        "color": "#6366f1",
+        "color": "#f59e0b" if needs_elevated else "#6366f1",
         "success": True,
         "access_denied": False,
         "status": "granted",
-        "scopes": ["frontier:read"],
-        "requested_scopes": ["frontier:read"],
+        "scopes": requested_scopes,
+        "requested_scopes": requested_scopes,
         "error": None,
         "demo_mode": False,
     })
-    flow_events.append("Consumer-scoped MCP token issued")
+    if needs_elevated:
+        flow_events.append("Elevated MCP token issued (Service Account)")
+    else:
+        flow_events.append("Consumer-scoped MCP token issued")
 
     # ------------------------------------------------------------------
     # Phase C — MCP agentic loop
@@ -303,10 +345,14 @@ async def run_agent(
 
     flow_events.append("Final response ready")
 
-    try:
-        id_claims = jose_jwt.get_unverified_claims(id_token)
-    except Exception:
-        id_claims = None
+    # For elevated flow, the exchange_result includes the svc id_token_claims
+    if needs_elevated:
+        id_claims = exchange_result.get("id_token_claims")
+    else:
+        try:
+            id_claims = jose_jwt.get_unverified_claims(id_token)
+        except Exception:
+            id_claims = None
 
     return {
         "response": final_text.strip(),

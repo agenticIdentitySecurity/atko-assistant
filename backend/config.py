@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     OKTA_MCP_RESOURCE_SERVER_ISSUER: str  # e.g. https://dev-xxxxx.okta.com/oauth2/my-as
     OKTA_MCP_AUDIENCE: str = "api://mcp-resource-server"
 
+    # Service Account — used for ROPG elevated flow (add_subscription etc.)
+    SERVICE_ACCOUNT_USERNAME: str = ""
+    SERVICE_ACCOUNT_PASSWORD: str = ""
+
     # Claude API
     ANTHROPIC_API_KEY: str
     ANTHROPIC_BASE_URL: str | None = None  # set to route via LiteLLM or a proxy

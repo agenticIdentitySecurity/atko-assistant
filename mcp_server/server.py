@@ -64,7 +64,26 @@ def _validate_token_sync(token: str) -> dict:
         audience=audience,
         issuer=mcp_issuer,
     )
+
+    # Extract and store scopes for tool-level gating
+    scopes_raw = claims.get("scp") or claims.get("scope", [])
+    if isinstance(scopes_raw, str):
+        _token_scopes.update(scopes_raw.split())
+    elif isinstance(scopes_raw, list):
+        _token_scopes.update(scopes_raw)
+    logger.info("Token scopes: %s", _token_scopes)
+
     return claims
+
+
+# Global token scopes — populated during validation, checked by tools
+_token_scopes: set[str] = set()
+
+
+def _require_scope(scope: str) -> None:
+    """Raise if the current token lacks the required scope."""
+    if scope not in _token_scopes:
+        raise PermissionError(f"Access denied — token missing required scope: {scope}")
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +187,36 @@ def search_products(search_term: str, limit: int = 10) -> str:
         [f"%{search_term}%", f"%{search_term}%", int(limit)],
     )
     return json.dumps(rows, indent=2, default=str)
+
+
+@mcp.tool()
+def add_subscription(customer_id: int, service_name: str, plan: str = "Basic") -> str:
+    """Add a streaming subscription for a customer. Requires elevated access.
+
+    Args:
+        customer_id: The customer's ID.
+        service_name: Name of the service (e.g., "Paramount+", "Netflix").
+        plan: Subscription plan (e.g., "Basic", "Premium").
+
+    Returns:
+        JSON object confirming the subscription was added.
+    """
+    _require_scope("frontier:elevated")
+    try:
+        db.conn.execute(
+            "INSERT INTO subscriptions (customer_id, service_name, plan, status) VALUES (?, ?, ?, 'active')",
+            (customer_id, service_name, plan),
+        )
+        db.conn.commit()
+        return json.dumps({
+            "success": True,
+            "customer_id": customer_id,
+            "service_name": service_name,
+            "plan": plan,
+            "status": "active",
+        }, indent=2)
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)})
 
 
 # ---------------------------------------------------------------------------

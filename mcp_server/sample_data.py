@@ -34,6 +34,16 @@ ORDERS = [
     (5, 3,  "pending",   399.99),
 ]
 
+SUBSCRIPTIONS = [
+    # (customer_id, service_name, plan, status)
+    (1, "Netflix", "Premium", "active"),
+    (1, "Spotify", "Family", "active"),
+    (2, "Netflix", "Basic", "active"),
+    (3, "Disney+", "Standard", "active"),
+    (4, "HBO Max", "Ad-Free", "cancelled"),
+    (5, "Netflix", "Standard", "active"),
+]
+
 ORDER_ITEMS = [
     # (order_id, product_id, quantity, unit_price)
     (1, 1, 1, 1299.99),
@@ -87,6 +97,12 @@ def insert_sample_data(conn: sqlite3.Connection) -> None:
         cur.execute(
             "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
             (order_id, product_id, qty, unit_price),
+        )
+
+    for customer_id, service_name, plan, status in SUBSCRIPTIONS:
+        cur.execute(
+            "INSERT INTO subscriptions (customer_id, service_name, plan, status) VALUES (?, ?, ?, ?)",
+            (customer_id, service_name, plan, status),
         )
 
     conn.commit()
