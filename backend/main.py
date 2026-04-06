@@ -171,6 +171,7 @@ async def chat(
             id_token=id_token,
             oidc_access_token=oidc_access_token,
             exchanger=exchanger,
+            user=user,
             flow_events=flow_events,
             token_exchanges=token_exchanges,
         )

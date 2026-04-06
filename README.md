@@ -9,25 +9,31 @@ Atko Assistant is a consumer-facing AI chat application where a Claude-powered a
 - **Consumer OIDC Login** — Users authenticate via Okta (Authorization Code + PKCE)
 - **AI Agent Identity** — The agent is registered in Okta's AI Agent Directory with its own RS256 credentials
 - **Cross-App Access (XAA)** — Two-step token exchange: ID Token → ID-JAG → scoped Access Token
+- **Scope-Based Access Control** — Consumer tools get `frontier:read`; elevated tools (e.g., add subscription) automatically escalate to a service account with `frontier:elevated`
 - **Lazy Token Exchange** — Okta is only called when the LLM decides it needs database tools
 - **Live Token Inspector** — Collapsible panel showing decoded claims at each step of the XAA flow
 - **Governance in Real-Time** — Revoke access in Okta and the agent is immediately denied, no code changes needed
 
-## Architecture
+## Two Flows
 
+### Flow 1: Consumer (frontier:read)
 ```
 Consumer → Okta OIDC Login → ID Token
-    ↓
-Consumer Query → Claude LLM (Phase A)
-    ↓
-Claude needs tools → Cross-App Access (Phase B)
-    ├── Step 1: ID Token → ID-JAG (Org AS)
-    └── Step 2: ID-JAG → Access Token (Custom AS)
-    ↓
-Frontier DB MCP Server → SQLite Query (Phase C)
-    ↓
-Claude augments response → Consumer sees results
+    → Claude LLM → needs read-only tools
+    → XAA: ID Token → ID-JAG → Access Token (frontier:read)
+    → Frontier DB: query_customers, query_orders, search_products
 ```
+
+### Flow 2: Service Account — Elevated (frontier:elevated)
+```
+Consumer asks to add a subscription
+    → Claude LLM → needs add_subscription (elevated tool)
+    → ROPG: Service account authenticates → ID Token
+    → XAA: ID Token → ID-JAG → Access Token (frontier:elevated)
+    → Frontier DB: add_subscription executes with elevated scope
+```
+
+> **Note**: The ROPG (Resource Owner Password Grant) flow for the service account is a temporary workaround. In production, service account credentials must be vaulted and the flow should migrate to a more secure grant type (e.g., Client Credentials) when supported by Okta for this use case.
 
 See [docs/architecture.md](docs/architecture.md) for the full system diagram and [docs/implementation.md](docs/implementation.md) for setup instructions.
 
@@ -39,8 +45,8 @@ See [docs/architecture.md](docs/architecture.md) for the full system diagram and
 | **Backend** | Python, FastAPI, Uvicorn |
 | **LLM** | Claude (Anthropic API) |
 | **MCP Server** | FastMCP (stdio transport), SQLite |
-| **Auth & Identity** | Okta OIDC (PKCE), Okta AI Agent Directory |
-| **Token Exchange** | okta-client-python SDK (`CrossAppAccessFlow`) |
+| **Auth & Identity** | Okta OIDC (PKCE), Okta AI Agent Directory, ROPG (service account) |
+| **Token Exchange** | okta-client-python SDK (`CrossAppAccessFlow`), scope-gated MCP tools |
 | **Infrastructure** | Terraform (Okta provider) for automated setup |
 
 ## Okta Components

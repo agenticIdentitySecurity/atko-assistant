@@ -10,6 +10,7 @@ Flow (matches sequence diagram):
 """
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -140,12 +141,116 @@ STATIC_TOOL_SCHEMAS = [
 ]
 
 
+def _ensure_customer_exists(user: dict) -> None:
+    """Ensure the logged-in user exists as a customer in the demo database."""
+    email = user.get("email", "")
+    name = user.get("name", email)
+    if not email:
+        return
+    try:
+        conn = sqlite3.connect(settings.DATABASE_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM customers WHERE email = ?", (email,))
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO customers (name, email, country) VALUES (?, ?, ?)",
+                (name, email, "USA"),
+            )
+            conn.commit()
+            logger.info("Auto-created customer for logged-in user: %s", email)
+        conn.close()
+    except Exception as exc:
+        logger.warning("Could not ensure customer exists: %s", exc)
+
+
+async def _run_elevated_tool(
+    tool_name: str,
+    tool_input: dict,
+    exchanger: Any,
+    flow_events: list[str],
+    token_exchanges: list[dict],
+    exchange_result: dict,
+) -> str:
+    """Execute a single elevated tool in a separate MCP subprocess with service account token."""
+    flow_events.append("Elevated access required — Service Account ROPG")
+    logger.info("Elevated tool %s → starting service account flow", tool_name)
+
+    try:
+        svc_result = await exchanger.exchange_service_account(scopes=["frontier:elevated"])
+        elevated_token = svc_result["access_token"]
+        # Update exchange_result so token_details reflects the elevated flow
+        exchange_result.update({
+            "id_token_claims": svc_result.get("id_token_claims"),
+            "id_jag_claims": svc_result.get("id_jag_claims"),
+            "access_token_claims": svc_result.get("access_token_claims"),
+        })
+    except HTTPException as exc:
+        token_exchanges.append({
+            "agent": "frontier_mcp",
+            "agent_name": "Frontier MCP (Elevated)",
+            "color": "#f59e0b",
+            "success": False,
+            "access_denied": True,
+            "status": "denied",
+            "scopes": [],
+            "requested_scopes": ["frontier:elevated"],
+            "error": exc.detail,
+            "demo_mode": False,
+        })
+        flow_events.append("Elevated token exchange denied")
+        return f"Error: Elevated access denied — {exc.detail}"
+
+    token_exchanges.append({
+        "agent": "frontier_mcp",
+        "agent_name": "Frontier MCP (Elevated)",
+        "color": "#f59e0b",
+        "success": True,
+        "access_denied": False,
+        "status": "granted",
+        "scopes": ["frontier:elevated"],
+        "requested_scopes": ["frontier:elevated"],
+        "error": None,
+        "demo_mode": False,
+    })
+    flow_events.append("Elevated MCP token issued (Service Account)")
+
+    # Start a separate MCP subprocess with the elevated token
+    project_root = str(Path(__file__).parent.parent)
+    env = {**os.environ}
+    env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
+    env["MCP_ACCESS_TOKEN"] = elevated_token
+    env["OKTA_ORG_URL"] = settings.OKTA_ORG_URL
+    env["OKTA_MCP_RESOURCE_SERVER_ISSUER"] = settings.OKTA_MCP_RESOURCE_SERVER_ISSUER
+    env["OKTA_MCP_AUDIENCE"] = settings.OKTA_MCP_AUDIENCE
+    env["DATABASE_PATH"] = settings.DATABASE_PATH
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=[settings.MCP_SERVER_SCRIPT],
+        env=env,
+    )
+
+    try:
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as elevated_session:
+                await elevated_session.initialize()
+                result = await elevated_session.call_tool(tool_name, tool_input)
+                content_text = result.content[0].text if result.content else "No result"
+                flow_events.append("Elevated tool executed successfully")
+                return content_text
+    except Exception as exc:
+        logger.error("Elevated tool %s failed: %s", tool_name, exc)
+        flow_events.append(f"Elevated tool error: {exc}")
+        return f"Error: {exc}"
+
+
 async def run_agent(
     message: str,
     history: list[ChatMessage],
     id_token: str,
     oidc_access_token: str,
     exchanger: Any,
+    user: dict,
     flow_events: list[str],
     token_exchanges: list[dict],
 ) -> dict[str, Any]:
@@ -154,6 +259,9 @@ async def run_agent(
     Returns a dict: {"response": str, "tool_calls": list[str],
                      "flow_events": list[str], "token_exchanges": list[dict]}
     """
+    # Ensure the logged-in user has a customer record in the demo DB
+    _ensure_customer_exists(user)
+
     # Build message list
     messages: list[dict] = [
         {"role": m.role, "content": m.content} for m in history
@@ -168,10 +276,20 @@ async def run_agent(
     flow_events.append("LLM processing query")
     logger.info("Calling Claude (phase A — no MCP yet)")
 
+    # Inject logged-in user context so Claude auto-resolves "me" / "my account"
+    user_name = user.get("name") or user.get("email", "")
+    user_email = user.get("email", "")
+    system_with_user = (
+        f"{SYSTEM_PROMPT}\n"
+        f"The currently logged-in consumer is: {user_name} (email: {user_email}). "
+        f"When they refer to themselves, their account, or don't specify a customer, "
+        f"look up this consumer by email using query_customers with filter_email."
+    )
+
     first_response = _anthropic.messages.create(
         model=settings.ANTHROPIC_MODEL,
         max_tokens=2048,
-        system=SYSTEM_PROMPT,
+        system=system_with_user,
         tools=STATIC_TOOL_SCHEMAS,
         messages=messages,
     )
@@ -298,18 +416,26 @@ async def run_agent(
                             tool_names_used.append(block.name)
                             flow_events.append(f"Frontier MCP: calling {block.name}")
                             logger.info("Calling tool %s with %s", block.name, block.input)
-                            try:
-                                result = await session.call_tool(block.name, block.input)
-                                content_text = (
-                                    result.content[0].text
-                                    if result.content
-                                    else "No result"
+
+                            # Elevated tool → run in separate MCP with elevated token
+                            if block.name in ELEVATED_TOOLS:
+                                content_text = await _run_elevated_tool(
+                                    block.name, block.input, exchanger,
+                                    flow_events, token_exchanges, exchange_result,
                                 )
-                                flow_events.append("Frontier DB results returned")
-                            except Exception as exc:
-                                logger.error("Tool %s failed: %s", block.name, exc)
-                                content_text = f"Error: {exc}"
-                                flow_events.append(f"Frontier DB error: {exc}")
+                            else:
+                                try:
+                                    result = await session.call_tool(block.name, block.input)
+                                    content_text = (
+                                        result.content[0].text
+                                        if result.content
+                                        else "No result"
+                                    )
+                                    flow_events.append("Frontier DB results returned")
+                                except Exception as exc:
+                                    logger.error("Tool %s failed: %s", block.name, exc)
+                                    content_text = f"Error: {exc}"
+                                    flow_events.append(f"Frontier DB error: {exc}")
 
                             tool_results.append(
                                 {
@@ -329,7 +455,7 @@ async def run_agent(
                     pending_response = _anthropic.messages.create(
                         model=settings.ANTHROPIC_MODEL,
                         max_tokens=2048,
-                        system=SYSTEM_PROMPT,
+                        system=system_with_user,
                         tools=STATIC_TOOL_SCHEMAS,
                         messages=messages,
                     )
@@ -345,8 +471,9 @@ async def run_agent(
 
     flow_events.append("Final response ready")
 
-    # For elevated flow, the exchange_result includes the svc id_token_claims
-    if needs_elevated:
+    # If elevated tools ran, exchange_result was updated with svc claims
+    elevated_used = "id_token_claims" in exchange_result
+    if elevated_used:
         id_claims = exchange_result.get("id_token_claims")
     else:
         try:

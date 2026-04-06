@@ -24,6 +24,16 @@ variable "okta_ai_agent_id" {
   type        = string
 }
 
+variable "service_account_group_ids" {
+  description = <<-EOT
+    List of Okta group IDs containing the service account user.
+    The auth policy grants password-only (no MFA) login to these groups.
+    Create a group like "Service Accounts", add the ROPG user, and paste the group ID here.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "redirect_uri" {
   description = "OIDC sign-in redirect URI for the local app"
   type        = string

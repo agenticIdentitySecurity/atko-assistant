@@ -116,12 +116,16 @@ This is the resource server that controls access to Frontier DB.
 
 The issuer URI looks like: `https://dev-xxxxx.okta.com/oauth2/aus...`
 
-##### 3b. Add the Scope
+##### 3b. Add Scopes
 
 1. Go to the **Scopes** tab → **Add Scope**
-2. Configure:
+2. Add the consumer scope:
    - **Name**: `frontier:read`
    - **Display phrase**: `Read access to Frontier DB`
+   - **Include in public metadata**: checked
+3. Add the elevated scope:
+   - **Name**: `frontier:elevated`
+   - **Display phrase**: `Elevated access for service account operations`
    - **Include in public metadata**: checked
 
 ##### 3c. Create an Access Policy
@@ -133,19 +137,81 @@ The issuer URI looks like: `https://dev-xxxxx.okta.com/oauth2/aus...`
 
 > **Critical**: Both the AI Agent entity AND the OIDC application must be in "Assigned clients". This is the most common cause of `no_matching_policy` errors.
 
-##### 3d. Add a Policy Rule
+##### 3d. Add Policy Rules
+
+**Rule 1 — Consumer Access:**
 
 1. Inside the policy, click **Add Rule**
 2. Configure:
    - **Rule name**: `Allow Consumer Access`
    - **Grant type is**: Authorization Code, Token Exchange, JWT Bearer (check all three)
-   - **User is**: Members of the following groups → **Everyone** (or a specific group if you want to demo denial)
+   - **User is**: Members of the following groups → **Everyone**
    - **Scopes requested**: `frontier:read`
+3. Save
+
+**Rule 2 — Service Account (Elevated):**
+
+1. Add another rule
+2. Configure:
+   - **Rule name**: `Service Account Rule`
+   - **Grant type is**: Resource Owner Password, Token Exchange, JWT Bearer (check all three)
+   - **User is**: Members of the following groups → **Everyone** (or a specific service account group)
+   - **Scopes requested**: `frontier:elevated`
 3. Save
 
 ---
 
-#### Step 4: Record All Configuration Values
+#### Step 4: Configure Service Account for ROPG
+
+The elevated flow uses a service account that authenticates via Resource Owner Password Grant (ROPG).
+
+##### 4a. Create a Service Account User
+
+1. Go to **Directory → People → Add Person**
+2. Create a user for the service account (e.g., `svc-atko-agent@your-org.com`)
+3. Set a password and ensure the user is in the **Active** state
+4. Assign this user to the **Atko Assistant** OIDC application
+
+##### 4b. Enable ROPG on the OIDC App
+
+> **Important**: The Okta Admin UI does not expose the ROPG grant type. You must enable it via the Okta Apps API or Terraform.
+
+**Via Okta API** (using curl or Postman):
+```bash
+# Get the current app settings
+curl -X GET "https://{your-org}.okta.com/api/v1/apps/{OKTA_CLIENT_ID}" \
+  -H "Authorization: SSWS {API_TOKEN}" | jq '.settings.oauthClient.grant_types'
+
+# Add "password" to the grant_types array via PUT
+# (include all existing grant_types plus "password")
+```
+
+**Via Terraform**: The `okta_app_oauth` resource supports `grant_types = [..., "password"]` — Terraform uses the Apps API under the hood.
+
+##### 4c. Create an Authentication Policy for Password-Only Login
+
+The service account needs to authenticate without MFA (ROPG cannot do interactive MFA).
+
+1. Go to **Security → Authentication Policies → Add a policy**
+2. Name: `Service Account Auth Policy`
+3. Add a rule:
+   - **Name**: `Service Account — Password Only`
+   - **Factor mode**: 1FA (password only)
+   - **Assign to**: A group containing the service account user
+4. **Assign this policy to the Atko Assistant app**: Applications → Atko Assistant → Sign On → Authentication Policy → select the new policy
+
+> **Security note**: ROPG is a temporary workaround for the service account flow. In production, service account credentials must be stored in a secrets vault (e.g., HashiCorp Vault, AWS Secrets Manager). Migrate to Client Credentials grant when supported by Okta for this use case.
+
+##### 4d. Record Service Account Values
+
+| Value | Environment Variable |
+|-------|---------------------|
+| Service account email | `SERVICE_ACCOUNT_USERNAME` |
+| Service account password | `SERVICE_ACCOUNT_PASSWORD` |
+
+---
+
+#### Step 5: Record All Configuration Values
 
 Before moving on, confirm you have all of these:
 
@@ -170,11 +236,14 @@ The `terraform/` directory contains a Terraform configuration that automates mos
 
 | Resource | Details |
 |---|---|
-| OIDC Web Application | `Atko Assistant` app with Authorization Code + Refresh Token, PKCE |
+| OIDC Web Application | `Atko Assistant` app with Auth Code + Refresh Token + Token Exchange + **Password (ROPG)**, PKCE |
 | Frontier MCP Custom Authorization Server | Audience: `api://mcp-resource-server` |
-| `frontier:read` scope | On the Frontier MCP AS |
+| `frontier:read` scope | Consumer read access on the Frontier MCP AS |
+| `frontier:elevated` scope | Elevated service account access on the Frontier MCP AS |
 | Access policy | Assigned to both the OIDC app and AI Agent (`client_whitelist`) |
-| Policy rule | Everyone group, `frontier:read`, all three grant types |
+| Consumer policy rule | Everyone group, `frontier:read`, Auth Code + JWT Bearer + Token Exchange |
+| Service Account policy rule | Everyone group, `frontier:elevated`, **Password + JWT Bearer + Token Exchange** |
+| Authentication policy | Password-only sign-in for the service account (assigned to the OIDC app) |
 
 #### What still requires manual steps (cannot be done via Terraform)
 
@@ -259,6 +328,10 @@ OKTA_SERVICE_KEY_ID=<kid-from-credentials-tab> # key ID from AI Agent Credential
 OKTA_MCP_RESOURCE_SERVER_ISSUER=https://dev-xxxxx.okta.com/oauth2/aus...
 OKTA_MCP_AUDIENCE=api://mcp-resource-server
 
+# Service Account (ROPG) — Step 4
+SERVICE_ACCOUNT_USERNAME=svc-atko-agent@your-org.com
+SERVICE_ACCOUNT_PASSWORD=...                       # vault this in production
+
 # Claude / Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_BASE_URL=https://llm.your-company.ai # optional: LiteLLM proxy or gateway
@@ -280,10 +353,11 @@ No manual setup needed. The SQLite database initializes automatically the first 
 
 | Table | Sample records |
 |-------|---------------|
-| `customers` | 5 customers (Alice, Bob, Charlie, Diana, Eve) |
+| `customers` | 5 customers (Alice, Bob, Charlie, Diana, Eve) + logged-in user auto-created |
 | `products` | 5 products (Laptop Pro, Wireless Mouse, Keyboard, Monitor, USB-C Hub) |
 | `orders` | 10 orders across customers, various statuses |
 | `order_items` | 14 line items linking orders to products |
+| `subscriptions` | 6 subscriptions (Netflix, Spotify, Disney+, HBO Max) |
 
 ---
 
@@ -336,6 +410,21 @@ To demonstrate access control:
 
 This demonstrates live governance: access can be revoked in Okta without touching any code.
 
+### Scenario 4 — Elevated access (service account ROPG)
+
+**Query**: `"Add Paramount+ subscription"`
+
+**Expected**:
+- Claude looks up the logged-in consumer, then calls `add_subscription`
+- The `add_subscription` tool is detected as elevated → service account ROPG flow triggers
+- Token Inspector shows: service account's `sub`, `frontier:elevated` scope
+- Identity Flow shows: "Elevated access required — Service Account ROPG" and "Elevated MCP token issued"
+- An amber token exchange card appears for the elevated flow
+
+This demonstrates scope-based escalation: the same consumer chat session transparently uses a service account when elevated operations are needed.
+
+> **Note**: ROPG is a temporary workaround. In production, service account credentials must be stored in a secrets vault. This flow should migrate to Client Credentials when Okta supports it for this use case.
+
 ---
 
 ## Environment Variables Reference
@@ -351,6 +440,8 @@ This demonstrates live governance: access can be revoked in Okta without touchin
 | `OKTA_SERVICE_KEY_PATH` | Yes | Path to RS256 private key PEM | Where you saved the downloaded key |
 | `OKTA_MCP_RESOURCE_SERVER_ISSUER` | Yes | Frontier MCP Custom AS issuer URL | Security → API → Frontier MCP → Issuer URI |
 | `OKTA_MCP_AUDIENCE` | Yes | Frontier MCP token audience | `api://mcp-resource-server` (default) |
+| `SERVICE_ACCOUNT_USERNAME` | Yes* | Service account email for ROPG | Directory → People → service account user |
+| `SERVICE_ACCOUNT_PASSWORD` | Yes* | Service account password (**vault in production**) | Set during user creation |
 | `ANTHROPIC_API_KEY` | Yes | Claude API key | console.anthropic.com |
 | `ANTHROPIC_BASE_URL` | No | LiteLLM proxy or gateway URL | Default: Anthropic direct API |
 | `ANTHROPIC_MODEL` | No | Model name | Default: `claude-sonnet-4-6` |
@@ -455,9 +546,13 @@ Items marked **(manual only)** cannot be automated via Terraform and must be don
 - [ ] RS256 private key downloaded and saved **(manual only)**
 - [ ] Frontier MCP Custom Authorization Server created *(Terraform: `okta_auth_server`)*
 - [ ] Audience set to `api://mcp-resource-server`
-- [ ] `frontier:read` scope added *(Terraform: `okta_auth_server_scope`)*
+- [ ] `frontier:read` and `frontier:elevated` scopes added *(Terraform: `okta_auth_server_scope`)*
 - [ ] Access policy created with AI Agent AND OIDC app in "Assigned clients" *(Terraform: `okta_auth_server_policy`)*
-- [ ] Policy rule includes Token Exchange and JWT Bearer grant types *(Terraform: `okta_auth_server_policy_rule`)*
+- [ ] Consumer policy rule includes Token Exchange and JWT Bearer grant types *(Terraform: `okta_auth_server_policy_rule`)*
+- [ ] Service Account policy rule includes Password, Token Exchange, JWT Bearer grant types
+- [ ] Service account user created and assigned to the OIDC app
+- [ ] ROPG grant type enabled on the OIDC app (via API or Terraform — not available in UI)
+- [ ] Authentication policy with password-only rule assigned to the OIDC app
 
 ### Local Setup
 
@@ -476,3 +571,5 @@ Items marked **(manual only)** cannot be automated via Terraform and must be don
 - [ ] Token Exchanges shows `✓ Granted` for Frontier MCP with `frontier:read`
 - [ ] Query `"What can you help me with?"` shows "No exchanges yet" in Token Exchanges panel
 - [ ] "Cross-App Access requested" step appears **after** "Tool calls detected" in Identity Flow
+- [ ] Query `"Add Paramount+"` triggers elevated flow with `frontier:elevated` in Token Inspector
+- [ ] Elevated token exchange card appears in amber
