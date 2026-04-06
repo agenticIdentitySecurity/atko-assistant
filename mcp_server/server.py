@@ -167,25 +167,31 @@ def get_customer_with_orders(customer_id: int) -> str:
 
 
 @mcp.tool()
-def search_products(search_term: str, limit: int = 10) -> str:
-    """Search products by name or description.
+def search_products(search_term: str = "", limit: int = 10) -> str:
+    """Search products by name or description. Returns all products if no search term given.
 
     Args:
-        search_term: Keyword to match against product name or description.
+        search_term: Optional keyword to filter by. Leave empty to list all products.
         limit: Max rows to return (default 10).
 
     Returns:
         JSON array of product objects.
     """
-    rows = db.query(
-        """
-        SELECT id, name, description, price, stock
-        FROM products
-        WHERE name LIKE ? OR description LIKE ?
-        LIMIT ?
-        """,
-        [f"%{search_term}%", f"%{search_term}%", int(limit)],
-    )
+    if search_term:
+        rows = db.query(
+            """
+            SELECT id, name, description, price, stock
+            FROM products
+            WHERE name LIKE ? OR description LIKE ?
+            LIMIT ?
+            """,
+            [f"%{search_term}%", f"%{search_term}%", int(limit)],
+        )
+    else:
+        rows = db.query(
+            "SELECT id, name, description, price, stock FROM products LIMIT ?",
+            [int(limit)],
+        )
     return json.dumps(rows, indent=2, default=str)
 
 

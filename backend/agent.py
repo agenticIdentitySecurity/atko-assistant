@@ -32,6 +32,11 @@ Use the provided tools to look up customers, orders, and products when needed.
 You can also add streaming subscriptions (e.g. Paramount+, Netflix) for customers using the add_subscription tool.
 Always present data clearly and concisely.
 If you need multiple pieces of information, call the appropriate tools in sequence.
+
+IMPORTANT: Before calling add_subscription, you MUST first confirm with the user.
+Say something like "I'll add [service] to your account. Shall I proceed?" and wait for confirmation.
+Only call add_subscription AFTER the user confirms. Do NOT call it on the first turn.
+Always use plan="Standard" — do NOT ask the user which plan they want. Keep it simple.
 """
 
 # Tools that require elevated (service account) access via ROPG
@@ -111,10 +116,9 @@ STATIC_TOOL_SCHEMAS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "search_term": {"type": "string"},
+                "search_term": {"type": "string", "description": "Optional keyword to filter by. Leave empty to list all."},
                 "limit": {"type": "integer"},
             },
-            "required": ["search_term"],
         },
     },
     {

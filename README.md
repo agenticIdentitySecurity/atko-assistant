@@ -11,7 +11,8 @@ Atko Assistant is a consumer-facing AI chat application where a Claude-powered a
 - **Cross-App Access (XAA)** — Two-step token exchange: ID Token → ID-JAG → scoped Access Token
 - **Scope-Based Access Control** — Consumer tools get `frontier:read`; elevated tools (e.g., add subscription) automatically escalate to a service account with `frontier:elevated`
 - **Lazy Token Exchange** — Okta is only called when the LLM decides it needs database tools
-- **Live Token Inspector** — Collapsible panel showing decoded claims at each step of the XAA flow
+- **Live Token Inspector** — Animated panel that steps through each phase (ID Token → ID-JAG → Access Token → Tool Calls) with visual highlighting showing OBO vs ROPG flow type
+- **Quick-Action Buttons** — One-click demo queries for both consumer and elevated flows, with confirmation prompts for elevated actions
 - **Governance in Real-Time** — Revoke access in Okta and the agent is immediately denied, no code changes needed
 
 ## Two Flows
@@ -77,6 +78,15 @@ uvicorn backend.main:app --reload
 ```
 
 See the full [Implementation Guide](docs/implementation.md) for Okta configuration (manual or Terraform).
+
+## Demo Walkthrough
+
+1. Log in with Okta → welcome screen with quick-action buttons
+2. Click **"Show me my account"** → consumer XAA flow → Token Inspector steps through ID Token → ID-JAG → Access Token with blue **OBO** badges
+3. Click **"Add Paramount+"** → Claude asks for confirmation → click **"Yes, proceed"** → service account ROPG flow → Token Inspector shows amber **ROPG** badges with `frontier:elevated` scope
+4. Click **"View my recent orders"** → back to consumer flow → Inspector resets to blue **OBO** badges
+
+The Token Inspector animates through each phase so you can visually track the token exchange as it happens.
 
 ## Project Structure
 

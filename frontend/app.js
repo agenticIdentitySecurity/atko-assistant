@@ -33,6 +33,181 @@ function onKey(e) {
   if (e.key === 'Enter' && !loading) send();
 }
 
+function sendQuick(text) {
+  // Remove current pills (will be re-added after response)
+  const qa = document.getElementById('quick-actions');
+  if (qa) qa.remove();
+  document.getElementById('input').value = text;
+  send();
+}
+
+const QUICK_ACTIONS = [
+  { text: 'Show me my account', query: 'Show me my account details', cls: 'border-blue-200 text-blue-700 hover:bg-blue-50' },
+  { text: 'View my recent orders', query: 'View my recent orders', cls: 'border-blue-200 text-blue-700 hover:bg-blue-50' },
+  { text: 'What products do you offer?', query: 'What products do you offer?', cls: 'border-blue-200 text-blue-700 hover:bg-blue-50' },
+  { text: 'Add Paramount+', query: 'Add Paramount+ subscription', cls: 'border-amber-300 text-amber-700 hover:bg-amber-50' },
+  { text: 'Add Disney+', query: 'Add Disney+ subscription', cls: 'border-amber-300 text-amber-700 hover:bg-amber-50' },
+];
+
+function appendQuickActions() {
+  const existing = document.getElementById('quick-actions');
+  if (existing) existing.remove();
+
+  const list = document.getElementById('message-list');
+  const div = document.createElement('div');
+  div.id = 'quick-actions';
+  div.className = 'flex flex-wrap justify-end gap-2 mt-2';
+  QUICK_ACTIONS.forEach(a => {
+    const btn = document.createElement('button');
+    btn.className = 'px-4 py-2 rounded-full border-2 text-sm transition ' + a.cls;
+    btn.textContent = a.text;
+    btn.onclick = () => sendQuick(a.query);
+    div.appendChild(btn);
+  });
+  list.appendChild(div);
+  scrollBottom();
+}
+
+let _pendingConfirm = false;
+
+function maybeShowConfirmButtons(responseText) {
+  const lower = responseText.toLowerCase();
+  const isConfirmation = lower.includes('shall i proceed') || lower.includes('would you like me to') ||
+    lower.includes('should i go ahead') || lower.includes('confirm');
+  if (!isConfirmation) { _pendingConfirm = false; return; }
+  _pendingConfirm = true;
+
+  // Remove quick actions — show confirm buttons instead
+  const qa = document.getElementById('quick-actions');
+  if (qa) qa.remove();
+
+  const list = document.getElementById('message-list');
+  const div = document.createElement('div');
+  div.id = 'confirm-buttons';
+  div.className = 'flex justify-end gap-2 mt-2';
+
+  const yesBtn = document.createElement('button');
+  yesBtn.className = 'px-5 py-2 rounded-full bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition';
+  yesBtn.textContent = 'Yes, proceed';
+  yesBtn.onclick = () => { div.remove(); _pendingConfirm = false; document.getElementById('input').value = 'Yes, proceed'; send(); };
+
+  const noBtn = document.createElement('button');
+  noBtn.className = 'px-5 py-2 rounded-full bg-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-300 transition';
+  noBtn.textContent = 'No, cancel';
+  noBtn.onclick = () => { div.remove(); _pendingConfirm = false; document.getElementById('input').value = 'No, cancel that'; send(); };
+
+  div.appendChild(yesBtn);
+  div.appendChild(noBtn);
+  list.appendChild(div);
+  scrollBottom();
+}
+
+function animateInspector(data) {
+  const details = data.token_details;
+  const flowEvents = data.flow_events || [];
+  const toolCalls = data.tool_calls || [];
+
+  const isElevated = flowEvents.some(e => e.includes('ROPG') || e.includes('Elevated'));
+  const flowLabel = isElevated ? 'ROPG' : 'OBO';
+  const badgeBg = isElevated ? '#f59e0b' : '#3b82f6';
+  const DELAY = 700;
+  let step = 0;
+
+  // Helper: highlight a section with glow + badge, expand it, populate data
+  function activateSection(id, claimsElId, claims) {
+    const chevron = document.getElementById('chevron-' + id);
+    if (!chevron) return;
+    const section = chevron.closest('.border');
+
+    // Add flow-type badge
+    const badge = document.createElement('span');
+    badge.className = 'phase-badge';
+    badge.style.cssText = `display:inline-block;padding:1px 6px;font-size:9px;font-weight:700;color:white;border-radius:4px;background:${badgeBg};margin-right:4px;`;
+    badge.textContent = flowLabel;
+    chevron.parentElement.insertBefore(badge, chevron);
+
+    // Glow border
+    if (section) {
+      section.style.transition = 'all 0.3s ease';
+      section.style.borderColor = badgeBg;
+      section.style.boxShadow = `0 0 0 1px ${badgeBg}, 0 0 8px ${badgeBg}40`;
+      section.dataset.highlighted = '1';
+    }
+
+    // Populate claims and expand
+    if (claimsElId && claims) renderClaims(claimsElId, claims);
+    expandSection(id);
+  }
+
+  // Helper: dim a previously active section
+  function dimSection(id) {
+    const chevron = document.getElementById('chevron-' + id);
+    if (!chevron) return;
+    const section = chevron.closest('.border');
+    if (section) {
+      section.style.boxShadow = 'none';
+      section.style.opacity = '0.7';
+    }
+  }
+
+  // Step 0: Identity Flow — immediately
+  renderFlowEvents(flowEvents);
+
+  // Step 1: Client IDs
+  if (details) {
+    if (details.oidc_client_id || details.agent_client_id) {
+      const wrap = document.getElementById('client-ids');
+      if (wrap) wrap.classList.remove('hidden');
+      const oidcEl = document.getElementById('oidc-client-id');
+      const agentEl = document.getElementById('agent-client-id');
+      if (oidcEl) oidcEl.textContent = details.oidc_client_id || '';
+      if (agentEl) agentEl.textContent = details.agent_client_id || '';
+    }
+  }
+
+  // Build animation queue
+  const queue = [];
+  if (details?.id_token_claims) queue.push({ id: 'id-token', claimsEl: 'id-token-claims', claims: details.id_token_claims });
+  if (details?.id_jag_claims) queue.push({ id: 'id-jag', claimsEl: 'id-jag-claims', claims: details.id_jag_claims });
+  if (details?.access_token_claims) queue.push({ id: 'access-token', claimsEl: 'access-token-claims', claims: details.access_token_claims });
+
+  // Animate token sections sequentially
+  queue.forEach((item, i) => {
+    setTimeout(() => {
+      // Dim previous
+      if (i > 0) dimSection(queue[i - 1].id);
+      activateSection(item.id, item.claimsEl, item.claims);
+    }, (i + 1) * DELAY);
+  });
+
+  // Tool Calls — after all token sections
+  const toolDelay = (queue.length + 1) * DELAY;
+  setTimeout(() => {
+    // Dim last token section
+    if (queue.length > 0) dimSection(queue[queue.length - 1].id);
+
+    renderToolCalls(toolCalls);
+    if (toolCalls.length > 0) {
+      const chevron = document.getElementById('chevron-tool-calls');
+      const section = chevron?.closest('.border');
+      if (section) {
+        section.style.transition = 'all 0.3s ease';
+        section.style.borderColor = '#10b981';
+        section.style.boxShadow = '0 0 0 1px #10b981, 0 0 8px #10b98140';
+        section.dataset.highlighted = '1';
+      }
+      expandSection('tool-calls');
+    }
+  }, toolDelay);
+
+  // Final: restore all sections to full opacity
+  setTimeout(() => {
+    document.querySelectorAll('[data-highlighted]').forEach(el => {
+      el.style.opacity = '1';
+    });
+  }, toolDelay + DELAY);
+}
+
 async function send() {
   const input = document.getElementById('input');
   const msg = input.value.trim();
@@ -60,27 +235,29 @@ async function send() {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
       appendMessage('assistant', `Error: ${err.detail || res.statusText}`);
-      renderFlowEvents(err.flow_events || []);
-      renderTokenDetails(err.token_details);
+      animateInspector({ flow_events: err.flow_events || [], tool_calls: [], token_details: err.token_details });
       return;
     }
 
     const data = await res.json();
     appendMessage('assistant', data.response, data.tool_calls);
-    renderFlowEvents(data.flow_events || []);
-    renderToolCalls(data.tool_calls || []);
-    renderTokenDetails(data.token_details);
+    // Animate the Token Inspector step by step
+    animateInspector(data);
 
     // Keep last 20 turns in history
     chatHistory.push({ role: 'user', content: msg });
     chatHistory.push({ role: 'assistant', content: data.response });
     if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
 
+    // Show Yes/No buttons if Claude is asking for confirmation
+    maybeShowConfirmButtons(data.response);
+
   } catch (err) {
     removeThinking(thinkingId);
     appendMessage('assistant', `Network error: ${err.message}`);
   } finally {
     setLoading(false);
+    if (!_pendingConfirm) appendQuickActions();
     document.getElementById('input').focus();
   }
 }
@@ -101,12 +278,7 @@ function appendMessage(role, text, toolCalls = []) {
   } else {
     bubble.className = 'bg-white rounded-2xl rounded-tl-sm shadow-sm px-4 py-3 max-w-xl text-sm text-gray-800 prose';
     bubble.innerHTML = formatText(text);
-    if (toolCalls && toolCalls.length > 0) {
-      const tag = document.createElement('p');
-      tag.className = 'mt-2 text-xs text-gray-400';
-      tag.textContent = `Tools used: ${toolCalls.join(', ')}`;
-      bubble.appendChild(tag);
-    }
+    // Tool calls shown in Token Inspector only, not in chat
   }
 
   wrapper.appendChild(bubble);
@@ -169,7 +341,16 @@ function expandSection(id) {
 }
 
 function resetInspector() {
-  // Reset all claim sections to placeholder
+  // Clear highlights, badges, borders
+  document.querySelectorAll('.phase-badge').forEach(el => el.remove());
+  document.querySelectorAll('[data-highlighted]').forEach(el => {
+    el.style.borderColor = '';
+    el.style.boxShadow = '';
+    el.style.opacity = '';
+    el.style.transition = '';
+    delete el.dataset.highlighted;
+  });
+  // Reset placeholders
   setPlaceholder('id-token-claims', 'Awaiting login data');
   setPlaceholder('id-jag-claims', 'No exchange yet');
   setPlaceholder('access-token-claims', 'No exchange yet');
@@ -194,32 +375,7 @@ function setPlaceholder(elId, text) {
 // Render token claims
 // ---------------------------------------------------------------------------
 
-function renderTokenDetails(details) {
-  if (!details) return;
-
-  // Client IDs
-  if (details.oidc_client_id || details.agent_client_id) {
-    const wrap = document.getElementById('client-ids');
-    if (wrap) wrap.classList.remove('hidden');
-    const oidcEl = document.getElementById('oidc-client-id');
-    const agentEl = document.getElementById('agent-client-id');
-    if (oidcEl) oidcEl.textContent = details.oidc_client_id || '';
-    if (agentEl) agentEl.textContent = details.agent_client_id || '';
-  }
-
-  if (details.id_token_claims) {
-    renderClaims('id-token-claims', details.id_token_claims);
-    expandSection('id-token');
-  }
-  if (details.id_jag_claims) {
-    renderClaims('id-jag-claims', details.id_jag_claims);
-    expandSection('id-jag');
-  }
-  if (details.access_token_claims) {
-    renderClaims('access-token-claims', details.access_token_claims);
-    expandSection('access-token');
-  }
-}
+// renderTokenDetails is now handled by animateInspector
 
 const KEY_CLAIMS = ['sub', 'iss', 'aud', 'exp', 'iat', 'scp', 'scope', 'act', 'name', 'email', 'cid'];
 

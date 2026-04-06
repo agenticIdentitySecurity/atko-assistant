@@ -98,7 +98,7 @@ class TokenExchanger:
         cached = self._cache.get(sub)
         if cached and cached["expires_at"] > datetime.utcnow():
             logger.info("Using cached MCP token for sub=%s", sub)
-            return cached["result"]
+            return dict(cached["result"])
 
         logger.info("CrossAppAccessFlow for sub=%s", sub)
 
@@ -144,10 +144,10 @@ class TokenExchanger:
                 "access_token_claims": access_token_claims,
             }
             self._cache[sub] = {
-                "result": result,
+                "result": dict(result),
                 "expires_at": datetime.utcnow() + timedelta(hours=1),
             }
-            return result
+            return dict(result)
 
         except HTTPException:
             raise
@@ -177,7 +177,7 @@ class TokenExchanger:
         cached = self._cache.get(cache_key)
         if cached and cached["expires_at"] > datetime.utcnow():
             logger.info("Using cached service account token")
-            return cached["result"]
+            return dict(cached["result"])
 
         logger.info("Service Account ROPG flow (scopes=%s)", scopes)
 
