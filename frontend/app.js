@@ -22,6 +22,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (e) {
     window.location.href = '/login-page';
   }
+  // Time-based greeting
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning,' : hour < 17 ? 'Good afternoon,' : 'Good evening,';
+  const greetEl = document.getElementById('greeting');
+  if (greetEl) greetEl.textContent = greeting;
+
   document.getElementById('input').focus();
 });
 

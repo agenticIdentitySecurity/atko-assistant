@@ -71,8 +71,9 @@
           <!-- Welcome bubble -->
           <div class="flex justify-start">
             <div class="bg-white rounded-2xl rounded-tl-sm shadow-sm px-4 py-3 max-w-xl text-sm text-slate-700">
-              Hi! I'm <strong>Atko Assistant</strong>, here to help with your account.<br/><br/>
-              To get started, here are some options. Or, describe what you need help with.
+              <span id="greeting"></span><br/><br/>
+              I'm <strong>Atko Assistant</strong>, here 24 hours a day to answer your questions.<br/><br/>
+              To get started, here are some options. Or, you can describe what you need help with.
             </div>
           </div>
 
@@ -107,7 +108,7 @@
       <footer class="bg-white border-t border-slate-200 px-4 py-3 shrink-0">
         <div class="max-w-2xl mx-auto flex gap-2">
           <input id="input" type="text" autocomplete="off"
-            placeholder="Ask about Frontier DB data…"
+            placeholder="Ask a brief question…"
             onkeydown="onKey(event)"
             class="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"/>
           <button id="send-btn" onclick="send()"
@@ -223,6 +224,6 @@
 
   </div><!-- /body -->
 
-  <script src="/static/app.js?v=10"></script>
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>
