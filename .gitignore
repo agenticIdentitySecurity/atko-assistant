@@ -1,6 +1,9 @@
 # OS
 .DS_Store
 
+# Internal docs (not for repo)
+PRD.md
+
 # Python
 .venv/
 __pycache__/
