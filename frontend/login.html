@@ -3,68 +3,82 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Atko Assistant — Login</title>
+  <title>Atko Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    #messages { scroll-behavior: smooth; }
+    .prose p  { margin-bottom: 0.4rem; }
+    .prose ul { list-style: disc; padding-left: 1.25rem; }
+    /* Blinking dots */
+    .dot-blink span { animation: blink 1.4s infinite both; }
+    .dot-blink span:nth-child(2) { animation-delay: 0.2s; }
+    .dot-blink span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink {
+      0%,80%,100% { opacity:0; } 40% { opacity:1; }
+    }
+    /* Message slide-in */
+    @keyframes slideUp {
+      from { opacity:0; transform:translateY(12px); }
+      to   { opacity:1; transform:translateY(0);    }
+    }
+    .msg-appear { animation: slideUp 0.3s ease-out both; }
+    /* Quick action fade-in */
+    @keyframes fadeIn {
+      from { opacity:0; transform:translateY(6px); }
+      to   { opacity:1; transform:translateY(0);   }
+    }
+    .action-appear { animation: fadeIn 0.25s ease-out both; }
+  </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 min-h-screen flex items-center justify-center p-4">
+<body class="bg-white h-screen flex flex-col overflow-hidden">
 
-  <div class="w-full max-w-md">
-    <!-- Card -->
-    <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
-
-      <!-- Top banner -->
-      <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6 text-center">
-        <div class="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-xl mx-auto mb-3 ring-2 ring-white/40">
-          A
-        </div>
-        <h1 class="text-2xl font-bold text-white">Atko Assistant</h1>
-        <p class="text-blue-100 text-sm mt-1">Okta for AI Agents — Demo</p>
-      </div>
-
-      <!-- Body -->
-      <div class="px-8 py-7">
-        <p class="text-gray-600 text-sm text-center mb-6">
-          Demonstrates consumer identity flowing through an AI Agent to a secured MCP data layer via
-          <strong>Okta Cross-App Access</strong>.
-        </p>
-
-        <!-- Flow steps preview -->
-        <ol class="space-y-2 mb-7 text-xs text-gray-500">
-          <li class="flex items-start gap-2">
-            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
-            <span>Login with Okta — ID token issued to browser</span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
-            <span>Atko Assistant performs <strong>Cross-App Access</strong> on your behalf</span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
-            <span>Okta Custom Auth Server issues a scoped token for <strong>Frontier MCP</strong></span>
-          </li>
-          <li class="flex items-start gap-2">
-            <span class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center shrink-0 mt-0.5">4</span>
-            <span>Claude queries <strong>Frontier DB</strong> via MCP tools — your identity is preserved</span>
-          </li>
-        </ol>
-
-        <a
-          href="/auth/login"
-          class="block w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm text-center transition"
-        >
-          Login with Okta
-        </a>
-
-        <p class="mt-5 text-xs text-gray-400 text-center">
-          Secured with Okta OIDC · Authorization Code + PKCE
-        </p>
+  <!-- ── Header ── -->
+  <header class="bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow">A</div>
+      <div>
+        <h1 class="text-sm font-semibold text-slate-900 leading-none">Atko Assistant</h1>
+        <p class="text-[10px] text-slate-400 mt-0.5">Powered by Okta for AI Agents. Sourced from Frontier DB via Frontier MCP</p>
       </div>
     </div>
+  </header>
 
-    <p class="text-center text-blue-200/50 text-xs mt-4">
-      Atko Assistant &mdash; Okta AI Agent Governance Demo
-    </p>
+  <!-- ── Chat area ── -->
+  <div class="flex flex-col flex-1 overflow-hidden">
+
+    <!-- Disclaimer -->
+    <div class="px-4 pt-4 pb-2 max-w-3xl mx-auto w-full">
+      <p class="text-xs text-slate-500 text-center leading-relaxed">
+        Atko Assistant is a virtual assistant, and some responses may be AI generated. To help improve and personalize your experience, your chat may be monitored and recorded. By starting this chat, you agree to the recording and collection of your information.
+      </p>
+    </div>
+
+    <!-- Date divider -->
+    <div class="flex items-center justify-center py-2">
+      <span class="text-[11px] text-slate-400">Today</span>
+    </div>
+
+    <!-- Messages -->
+    <main class="flex-1 overflow-y-auto px-4 pb-6" id="messages">
+      <div id="message-list" class="max-w-3xl mx-auto space-y-4">
+        <!-- Initial messages injected by landing.js -->
+      </div>
+    </main>
+
+    <!-- Input bar (disabled, prompts sign-in) -->
+    <footer class="bg-white border-t border-slate-200 px-4 py-3 shrink-0">
+      <div class="max-w-3xl mx-auto flex gap-2">
+        <input id="input" type="text" disabled
+          placeholder="Sign in to start chatting…"
+          class="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-400 cursor-not-allowed"/>
+        <button onclick="window.location.href='/auth/login'"
+          class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition">
+          Sign In
+        </button>
+      </div>
+    </footer>
   </div>
 
+  <script src="/static/landing.js?v=1"></script>
 </body>
 </html>
