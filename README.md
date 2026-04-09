@@ -113,6 +113,10 @@ The Token Inspector animates through each phase so you can visually track the to
 └── .env.example             # Environment variable template
 ```
 
+## Disclaimer
+
+This is a test application built for proof-of-concept and demonstration purposes only. It has not been tested for production use or for scale.
+
 ## License
 
 This project is provided as a sample for educational and demonstration purposes.
