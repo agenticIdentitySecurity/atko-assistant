@@ -39,7 +39,7 @@ SUBSCRIPTIONS = [
     (1, "Netflix", "Premium", "active"),
     (1, "Spotify", "Family", "active"),
     (2, "Netflix", "Basic", "active"),
-    (3, "Disney+", "Standard", "active"),
+    (3, "Peacock", "Standard", "active"),
     (4, "HBO Max", "Ad-Free", "cancelled"),
     (5, "Netflix", "Standard", "active"),
 ]

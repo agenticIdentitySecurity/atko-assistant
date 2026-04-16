@@ -16,6 +16,9 @@ private_key.pem
 *.pem
 *.key
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # SQLite database
 *.db
 *.db-shm

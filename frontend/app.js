@@ -51,8 +51,7 @@ const QUICK_ACTIONS = [
   { text: 'Show me my account', query: 'Show me my account details', cls: 'border-blue-200 text-blue-700 hover:bg-blue-50' },
   { text: 'View my recent orders', query: 'View my recent orders', cls: 'border-blue-200 text-blue-700 hover:bg-blue-50' },
   { text: 'What products do you offer?', query: 'What products do you offer?', cls: 'border-blue-200 text-blue-700 hover:bg-blue-50' },
-  { text: 'Add Paramount+', query: 'Add Paramount+ subscription', cls: 'border-amber-300 text-amber-700 hover:bg-amber-50' },
-  { text: 'Add Disney+', query: 'Add Disney+ subscription', cls: 'border-amber-300 text-amber-700 hover:bg-amber-50' },
+  { text: 'Add Peacock', query: 'Add Peacock subscription', cls: 'border-amber-300 text-amber-700 hover:bg-amber-50' },
 ];
 
 function appendQuickActions() {

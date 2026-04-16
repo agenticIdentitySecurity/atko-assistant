@@ -29,7 +29,7 @@ const CONVERSATIONS = {
     ],
   },
   plans: {
-    assistant: "Frontier offers a variety of streaming and connectivity plans including services like Paramount+, Disney+, and more. You can view full details and pricing after signing in.\n\nWould you like to sign in now?",
+    assistant: "Frontier offers a variety of streaming and connectivity plans including services like Peacock, Netflix, and more. You can view full details and pricing after signing in.\n\nWould you like to sign in now?",
     actions: [
       { text: 'Sign in to explore plans', type: 'auth' },
       { text: 'What can you help with?', type: 'chat', key: 'capabilities' },

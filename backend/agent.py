@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """\
 You are Atko Assistant, a helpful AI assistant with access to a customer database (Frontier DB).
 Use the provided tools to look up customers, orders, and products when needed.
-You can also add streaming subscriptions (e.g. Paramount+, Netflix) for customers using the add_subscription tool.
+You can also add streaming subscriptions (e.g. Peacock, Netflix) for customers using the add_subscription tool.
 Always present data clearly and concisely.
 If you need multiple pieces of information, call the appropriate tools in sequence.
 
@@ -127,7 +127,7 @@ STATIC_TOOL_SCHEMAS = [
             "Add a streaming subscription for a customer. Requires elevated service account access.\n\n"
             "Args:\n"
             "    customer_id: The customer's ID.\n"
-            "    service_name: Name of the service (e.g., 'Paramount+', 'Netflix').\n"
+            "    service_name: Name of the service (e.g., 'Peacock', 'Netflix').\n"
             "    plan: Subscription plan (e.g., 'Basic', 'Premium').\n\n"
             "Returns:\n"
             "    JSON object confirming the subscription was added."

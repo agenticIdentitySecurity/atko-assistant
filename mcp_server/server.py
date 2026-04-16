@@ -201,7 +201,7 @@ def add_subscription(customer_id: int, service_name: str, plan: str = "Basic") -
 
     Args:
         customer_id: The customer's ID.
-        service_name: Name of the service (e.g., "Paramount+", "Netflix").
+        service_name: Name of the service (e.g., "Peacock", "Netflix").
         plan: Subscription plan (e.g., "Basic", "Premium").
 
     Returns:
