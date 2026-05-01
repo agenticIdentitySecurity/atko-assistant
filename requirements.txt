@@ -25,3 +25,6 @@ anthropic>=0.25.0
 
 # MCP (Model Context Protocol) — server + client
 mcp[cli]>=1.0.0
+
+# Production ASGI server (Render deployment)
+gunicorn>=21.2.0

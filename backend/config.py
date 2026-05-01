@@ -37,5 +37,10 @@ class Settings(BaseSettings):
     # MCP
     MCP_SERVER_SCRIPT: str = "mcp_server/server.py"
 
+    # Production deployment
+    OKTA_SERVICE_KEY_PEM: str | None = None  # PEM content as env var (alternative to file)
+    HTTPS_ONLY: bool = False                  # set True on Render
+    FRONTEND_URL: str = "http://localhost:8000"  # Vercel URL in production
+
 
 settings = Settings()

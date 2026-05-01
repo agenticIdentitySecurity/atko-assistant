@@ -1,6 +1,6 @@
 # Implementation Guide: Atko Assistant
 
-This guide walks you through configuring Okta and running Atko Assistant locally.
+This guide walks you through configuring Okta and running Atko Assistant — either locally or deployed to the cloud (Vercel + Render).
 
 For a conceptual overview of how the system works, see [architecture.md](./architecture.md).
 
@@ -373,6 +373,149 @@ The app redirects to the login page. Click **Login with Okta**, authenticate wit
 
 ---
 
+## Phase 4: Production Deployment (Vercel + Render)
+
+> **Optional** — skip this phase if you only need to run locally.
+
+This phase deploys Atko Assistant as a split-stack application:
+- **Vercel** serves the frontend (static HTML/JS) via edge CDN — free tier
+- **Render** runs the FastAPI backend (auth, agent, MCP, SQLite) — free tier or $7/mo Starter
+
+Vercel rewrites proxy `/auth/*` and `/api/*` to Render, so the browser sees a single domain. Session cookies work normally with no CORS configuration.
+
+```
+Browser → atko-assistant.vercel.app
+  /               → Vercel serves index.html
+  /login-page     → Vercel serves login.html
+  /static/*       → Vercel serves app.js, landing.js
+  /auth/*         → Vercel proxies → Render backend
+  /api/*          → Vercel proxies → Render backend
+```
+
+### Step 1: Create Accounts
+
+**Vercel** (free):
+1. Go to [vercel.com](https://vercel.com) and click **Sign Up**
+2. Sign up with your **GitHub** account (recommended — enables automatic deploys)
+3. Authorize Vercel to access your GitHub repositories
+4. No credit card required for the free Hobby plan
+
+**Render** (free or $7/mo):
+1. Go to [render.com](https://render.com) and click **Get Started**
+2. Sign up with your **GitHub** account (recommended — enables automatic deploys)
+3. Authorize Render to access your GitHub repositories
+4. The free tier works but has cold starts (30-60s delay after 15 min of inactivity). The **Starter plan ($7/mo)** keeps the service always-on — recommended for demos
+
+### Step 2: Push the Production Branch
+
+The `deploy/production` branch contains all deployment configuration. Push it to GitHub:
+
+```bash
+git checkout deploy/production
+git push origin deploy/production
+```
+
+### Step 3: Deploy Backend to Render
+
+1. In the [Render Dashboard](https://dashboard.render.com), click **New** → **Web Service**
+2. Connect your GitHub repo and select the `deploy/production` branch
+3. Render auto-detects `render.yaml`. If configuring manually:
+   - **Runtime**: Python
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `gunicorn -w 1 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --timeout 120 backend.main:app`
+4. Add a **Persistent Disk**:
+   - **Mount Path**: `/var/data`
+   - **Size**: 1 GB
+5. Set **Environment Variables** in the Render dashboard:
+
+| Variable | Value | Secret? |
+|----------|-------|---------|
+| `OKTA_ORG_URL` | `https://your-org.okta.com` | No |
+| `OKTA_CLIENT_ID` | OIDC app client ID (from Phase 1) | No |
+| `OKTA_CLIENT_SECRET` | OIDC app client secret | **Yes** |
+| `OKTA_REDIRECT_URI` | `https://YOUR_VERCEL_URL/auth/callback` *(update after Step 4)* | No |
+| `OKTA_SERVICE_CLIENT_ID` | AI Agent client ID (from Phase 1) | No |
+| `OKTA_SERVICE_KEY_ID` | AI Agent key ID / `kid` (from Phase 1) | No |
+| `OKTA_SERVICE_KEY_PEM` | Entire PEM file content *(see note below)* | **Yes** |
+| `OKTA_MCP_RESOURCE_SERVER_ISSUER` | Custom AS issuer URL (from Phase 1) | No |
+| `OKTA_MCP_AUDIENCE` | `api://mcp-resource-server` | No |
+| `SERVICE_ACCOUNT_USERNAME` | Service account email (from Phase 1) | No |
+| `SERVICE_ACCOUNT_PASSWORD` | Service account password | **Yes** |
+| `ANTHROPIC_API_KEY` | Anthropic API key | **Yes** |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | No |
+| `SESSION_SECRET_KEY` | Random 32+ char string | **Yes** |
+| `DATABASE_PATH` | `/var/data/ai_agent.db` | No |
+| `HTTPS_ONLY` | `true` | No |
+| `MCP_SERVER_SCRIPT` | `mcp_server/server.py` | No |
+| `FRONTEND_URL` | `https://YOUR_VERCEL_URL` *(update after Step 4)* | No |
+
+> **Setting the private key**: On your local machine, run `cat private_key.pem` and copy the entire output. In the Render dashboard, create `OKTA_SERVICE_KEY_PEM` as a **Secret** and paste the full content (including `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines).
+
+> **Generating a session secret**: Run `python -c "import secrets; print(secrets.token_hex(32))"` to generate a random value for `SESSION_SECRET_KEY`.
+
+6. Click **Deploy**. Note your Render URL (e.g., `https://atko-assistant-api.onrender.com`).
+
+### Step 4: Deploy Frontend to Vercel
+
+1. In the [Vercel Dashboard](https://vercel.com/dashboard), click **Add New** → **Project**
+2. Import your GitHub repo and select the `deploy/production` branch
+3. Configure build settings:
+   - **Framework Preset**: Other
+   - **Output Directory**: `frontend`
+4. Before deploying, update `vercel.json` in your repo — replace `RENDER_SERVICE_URL` with your Render URL from Step 3:
+   ```json
+   {
+     "outputDirectory": "frontend",
+     "rewrites": [
+       { "source": "/auth/:path*", "destination": "https://atko-assistant-api.onrender.com/auth/:path*" },
+       { "source": "/api/:path*", "destination": "https://atko-assistant-api.onrender.com/api/:path*" }
+     ],
+     "routes": [
+       { "src": "/login-page", "dest": "/login.html" },
+       { "src": "/", "dest": "/index.html" }
+     ]
+   }
+   ```
+5. Commit and push the updated `vercel.json`. Vercel auto-deploys.
+6. Note your Vercel URL (e.g., `https://atko-assistant.vercel.app`).
+
+### Step 5: Connect Everything
+
+Now that both services have URLs, update the circular references:
+
+**Render dashboard** — update these env vars:
+- `OKTA_REDIRECT_URI` → `https://YOUR_VERCEL_URL/auth/callback`
+- `FRONTEND_URL` → `https://YOUR_VERCEL_URL`
+
+**Okta Admin Console** — update OIDC application:
+- **Sign-in redirect URI**: add `https://YOUR_VERCEL_URL/auth/callback`
+- **Sign-out redirect URI**: add `https://YOUR_VERCEL_URL/login-page`
+- **Trusted Origins** (Security → API → Trusted Origins): add `https://YOUR_VERCEL_URL`
+
+> **Tip**: Keep the `http://localhost:8000` redirect URIs in Okta so local development continues to work alongside the production deployment.
+
+### Step 6: Verify Production Deployment
+
+1. Open your Vercel URL in a browser
+2. You should see the login page
+3. Click **Login with Okta** → authenticate → redirected to chat
+4. Send `"Show me my account"` → verify Token Inspector shows the full flow
+5. Send `"Add Peacock"` → verify elevated flow with amber badge
+
+### Production Troubleshooting
+
+**Cold starts on Render free tier**: First request after 15 min of inactivity takes 30-60s. Upgrade to Starter ($7/mo) for always-on.
+
+**Auth callback fails**: Ensure `OKTA_REDIRECT_URI` on Render matches the Vercel URL exactly, and the same URI is listed in Okta's allowed redirect URIs.
+
+**Session cookies not persisting**: Verify `HTTPS_ONLY=true` on Render. Render terminates TLS at the load balancer, and the Vercel rewrite preserves the cookie domain.
+
+**Database resets on redeploy**: Ensure the persistent disk is attached at `/var/data` and `DATABASE_PATH=/var/data/ai_agent.db`.
+
+**Private key errors**: Confirm `OKTA_SERVICE_KEY_PEM` contains the full PEM including header/footer lines. Newlines are preserved by Render's environment variable handling.
+
+---
+
 ## Demo Scenarios
 
 ### Scenario 1 — Data query (token exchange triggered)
@@ -448,6 +591,12 @@ This demonstrates scope-based escalation: the same consumer chat session transpa
 | `SESSION_SECRET_KEY` | Yes | Cookie signing secret (32+ chars) | Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `DATABASE_PATH` | No | SQLite file path | Default: `./ai_agent.db` |
 | `MCP_SERVER_SCRIPT` | No | Path to MCP server script | Default: `mcp_server/server.py` |
+| `OKTA_SERVICE_KEY_PEM` | No** | PEM file content as env var (alternative to file path) | Paste output of `cat private_key.pem` |
+| `HTTPS_ONLY` | No | Enable secure session cookies | Default: `false`; set `true` on Render |
+| `FRONTEND_URL` | No | Frontend URL for auth redirects | Default: `http://localhost:8000`; set Vercel URL on Render |
+
+\* Required only for the elevated (service account) flow.
+\*\* Required on Render (production) where `private_key.pem` file is not available.
 
 ---
 
@@ -573,3 +722,17 @@ Items marked **(manual only)** cannot be automated via Terraform and must be don
 - [ ] "Cross-App Access requested" step appears **after** "Tool calls detected" in Identity Flow
 - [ ] Query `"Add Paramount+"` triggers elevated flow with `frontier:elevated` in Token Inspector
 - [ ] Elevated token exchange card appears in amber
+
+### Production Deployment (Phase 4)
+
+- [ ] Vercel account created and GitHub repo connected
+- [ ] Render account created and GitHub repo connected
+- [ ] `deploy/production` branch pushed to GitHub
+- [ ] Render Web Service deployed with all env vars set
+- [ ] Render persistent disk attached at `/var/data`
+- [ ] `OKTA_SERVICE_KEY_PEM` set as secret in Render (full PEM content)
+- [ ] `vercel.json` updated with actual Render service URL
+- [ ] Vercel project deployed from `deploy/production` branch
+- [ ] `OKTA_REDIRECT_URI` and `FRONTEND_URL` updated in Render to match Vercel URL
+- [ ] Okta redirect URIs updated to include Vercel URL
+- [ ] Production login → chat → tool calls → Token Inspector all working

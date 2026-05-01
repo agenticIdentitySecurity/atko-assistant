@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: atko-assistant-api
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --timeout 120 backend.main:app
+    envVars:
+      # Okta Org AS (OIDC login + ID-JAG exchange)
+      - key: OKTA_ORG_URL
+        sync: false
+      - key: OKTA_CLIENT_ID
+        sync: false
+      - key: OKTA_CLIENT_SECRET
+        sync: false
+      # Set to your Vercel URL after deploying frontend
+      - key: OKTA_REDIRECT_URI
+        sync: false
+      # Okta AI Agent service app (JWT Bearer / CrossAppAccessFlow)
+      - key: OKTA_SERVICE_CLIENT_ID
+        sync: false
+      - key: OKTA_SERVICE_KEY_ID
+        sync: false
+      # Paste entire PEM file content as this secret
+      - key: OKTA_SERVICE_KEY_PEM
+        sync: false
+      # Custom Authorization Server for MCP Resource Server
+      - key: OKTA_MCP_RESOURCE_SERVER_ISSUER
+        sync: false
+      - key: OKTA_MCP_AUDIENCE
+        value: api://mcp-resource-server
+      # Service account (elevated ROPG flow)
+      - key: SERVICE_ACCOUNT_USERNAME
+        sync: false
+      - key: SERVICE_ACCOUNT_PASSWORD
+        sync: false
+      # Claude / Anthropic (no ANTHROPIC_BASE_URL — uses direct API)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      # Application
+      - key: SESSION_SECRET_KEY
+        sync: false
+      - key: DATABASE_PATH
+        value: /var/data/ai_agent.db
+      - key: HTTPS_ONLY
+        value: "true"
+      - key: MCP_SERVER_SCRIPT
+        value: mcp_server/server.py
+      # Set to your Vercel URL after deploying frontend
+      - key: FRONTEND_URL
+        sync: false
+    disk:
+      name: atko-data
+      mountPath: /var/data
+      sizeGB: 1

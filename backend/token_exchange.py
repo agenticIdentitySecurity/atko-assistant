@@ -6,6 +6,8 @@ Two-step XAA flow (matches Okta sequence diagram):
   2. resume() — AI Agent exchanges ID-JAG for an access_token at the Custom AS
 """
 import logging
+import os
+import tempfile
 from datetime import datetime, timedelta
 
 import httpx
@@ -34,10 +36,22 @@ class TokenExchanger:
         self._key_provider: LocalKeyProvider | None = None
         self._org_token_endpoint: str | None = None
 
+    def _resolve_key_path(self) -> str:
+        """Return path to PEM file, writing from env var if needed."""
+        if self.s.OKTA_SERVICE_KEY_PEM:
+            path = os.path.join(tempfile.gettempdir(), "okta_service_key.pem")
+            if not os.path.exists(path):
+                with open(path, "w") as f:
+                    f.write(self.s.OKTA_SERVICE_KEY_PEM)
+                os.chmod(path, 0o600)
+                logger.info("Wrote PEM from env var to %s", path)
+            return path
+        return self.s.OKTA_SERVICE_KEY_PATH
+
     def _get_key_provider(self) -> LocalKeyProvider:
         if self._key_provider is None:
             self._key_provider = LocalKeyProvider.from_pem_file(
-                self.s.OKTA_SERVICE_KEY_PATH,
+                self._resolve_key_path(),
                 algorithm="RS256",
                 key_id=self.s.OKTA_SERVICE_KEY_ID,
             )

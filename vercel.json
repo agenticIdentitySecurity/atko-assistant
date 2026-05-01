@@ -1,0 +1,11 @@
+{
+  "outputDirectory": "frontend",
+  "rewrites": [
+    { "source": "/auth/:path*", "destination": "https://RENDER_SERVICE_URL/auth/:path*" },
+    { "source": "/api/:path*", "destination": "https://RENDER_SERVICE_URL/api/:path*" }
+  ],
+  "routes": [
+    { "src": "/login-page", "dest": "/login.html" },
+    { "src": "/", "dest": "/index.html" }
+  ]
+}

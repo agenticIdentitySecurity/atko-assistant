@@ -25,7 +25,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.SESSION_SECRET_KEY,
     session_cookie="session",
-    https_only=False,   # set True in production
+    https_only=settings.HTTPS_ONLY,
     same_site="lax",
 )
 
@@ -119,7 +119,7 @@ async def auth_callback(request: Request):
     request.session["id_token"] = id_token
     request.session["oidc_access_token"] = tokens.get("access_token", "")
 
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url=settings.FRONTEND_URL, status_code=303)
 
 
 @app.get("/auth/logout")
@@ -133,7 +133,7 @@ async def auth_logout(request: Request):
         from urllib.parse import urlencode
         params = urlencode({
             "id_token_hint": id_token,
-            "post_logout_redirect_uri": f"{request.base_url}login-page",
+            "post_logout_redirect_uri": f"{settings.FRONTEND_URL}/login-page",
         })
         return RedirectResponse(url=f"{end_session_endpoint}?{params}")
     return RedirectResponse(url="/login-page")
