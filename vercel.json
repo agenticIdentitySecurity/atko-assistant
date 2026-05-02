@@ -1,8 +1,8 @@
 {
   "outputDirectory": "frontend",
   "rewrites": [
-    { "source": "/auth/:path*", "destination": "https://RENDER_SERVICE_URL/auth/:path*" },
-    { "source": "/api/:path*", "destination": "https://RENDER_SERVICE_URL/api/:path*" }
+    { "source": "/auth/:path*", "destination": "https://atko-assistant.onrender.com/auth/:path*" },
+    { "source": "/api/:path*", "destination": "https://atko-assistant.onrender.com/api/:path*" }
   ],
   "routes": [
     { "src": "/login-page", "dest": "/login.html" },
