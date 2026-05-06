@@ -1,6 +1,6 @@
 # Atko Assistant
 
-A sample B2C chatbot demonstrating **Okta for AI Agents** with identity security powered by Cross-App Access.
+A sample B2C chatbot demonstrating **Okta for AI Agents** with identity security powered by Cross-App Access (OAuth IAAG Spec)
 
 Atko Assistant is a consumer-facing AI chat application where a Claude-powered agent queries a secured database (Frontier DB) on behalf of authenticated users. Every database access goes through Okta's Cross-App Access (XAA) token exchange, ensuring the AI agent operates with scoped, consumer-specific permissions — never with its own elevated privileges.
 
