@@ -479,11 +479,13 @@ git push origin deploy/production
 5. Commit and push the updated `vercel.json`. Vercel auto-deploys.
 6. Note your Vercel URL (e.g., `https://atko-assistant.vercel.app`).
 
-### Step 5: Connect Everything
+### Step 5: Connect Everything (Critical for Auth)
 
-Now that both services have URLs, update the circular references:
+Now that both services have URLs, update the circular references. **This step is mandatory** — without it, login will appear to work but the user's name won't display and logout will fail.
 
-**Render dashboard** — update these env vars:
+**Why this matters**: Vercel rewrites proxy `/auth/*` and `/api/*` requests to Render server-side, so the browser only ever sees the Vercel domain. For session cookies to work, the entire OIDC flow must stay within the Vercel domain from the browser's perspective. If `OKTA_REDIRECT_URI` points to the Render URL directly, Okta will redirect the browser to Render after login, setting the session cookie on the `.onrender.com` domain. The Vercel frontend can't access that cookie, so `/api/me` returns no user — the name disappears and logout breaks.
+
+**Render dashboard** — update these env vars, then **redeploy**:
 - `OKTA_REDIRECT_URI` → `https://YOUR_VERCEL_URL/auth/callback`
 - `FRONTEND_URL` → `https://YOUR_VERCEL_URL`
 
@@ -507,6 +509,8 @@ Now that both services have URLs, update the circular references:
 **Cold starts on Render free tier**: First request after 15 min of inactivity takes 30-60s. Upgrade to Starter ($7/mo) for always-on.
 
 **Auth callback fails**: Ensure `OKTA_REDIRECT_URI` on Render matches the Vercel URL exactly, and the same URI is listed in Okta's allowed redirect URIs.
+
+**User name not showing / logout doesn't work**: This means the session cookie is on the wrong domain. Verify that `OKTA_REDIRECT_URI` on Render points to the **Vercel** URL (`https://YOUR_VERCEL_URL/auth/callback`), not the Render URL. After updating, redeploy Render and clear your browser cookies before testing again. See Step 5 above for the full explanation.
 
 **Session cookies not persisting**: Verify `HTTPS_ONLY=true` on Render. Render terminates TLS at the load balancer, and the Vercel rewrite preserves the cookie domain.
 
