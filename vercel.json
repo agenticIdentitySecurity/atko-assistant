@@ -2,11 +2,9 @@
   "framework": null,
   "outputDirectory": "frontend",
   "rewrites": [
+    { "source": "/static/:path*", "destination": "/:path*" },
+    { "source": "/login-page", "destination": "/login.html" },
     { "source": "/auth/:path*", "destination": "https://atko-assistant.onrender.com/auth/:path*" },
     { "source": "/api/:path*", "destination": "https://atko-assistant.onrender.com/api/:path*" }
-  ],
-  "routes": [
-    { "src": "/login-page", "dest": "/login.html" },
-    { "src": "/", "dest": "/index.html" }
   ]
 }
