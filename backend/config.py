@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # Okta AI Agent service app (for CrossAppAccessFlow — JWT Bearer client assertion)
     OKTA_SERVICE_CLIENT_ID: str
-    OKTA_SERVICE_KEY_PATH: str  # path to RS256 private_key.pem
+    OKTA_SERVICE_KEY_PATH: str | None = None  # path to RS256 private_key.pem (local dev)
     OKTA_SERVICE_KEY_ID: str | None = None  # kid from Okta AI Agent key pair
 
     # Custom Authorization Server for the MCP Resource Server (step 2 of XAA)

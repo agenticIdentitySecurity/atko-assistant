@@ -1,4 +1,5 @@
 {
+  "framework": null,
   "outputDirectory": "frontend",
   "rewrites": [
     { "source": "/auth/:path*", "destination": "https://atko-assistant.onrender.com/auth/:path*" },
