@@ -146,14 +146,23 @@ STATIC_TOOL_SCHEMAS = [
 
 
 def _ensure_customer_exists(user: dict) -> None:
-    """Ensure the logged-in user exists as a customer in the demo database."""
+    """Ensure the logged-in user exists as a customer in the demo database (JIT provisioning)."""
     email = user.get("email", "")
     name = user.get("name", email)
     if not email:
         return
     try:
+        os.makedirs(os.path.dirname(settings.DATABASE_PATH) or ".", exist_ok=True)
         conn = sqlite3.connect(settings.DATABASE_PATH)
         cur = conn.cursor()
+        # Ensure schema exists (IF NOT EXISTS is safe to call repeatedly)
+        cur.execute("""CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            country TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
         cur.execute("SELECT id FROM customers WHERE email = ?", (email,))
         if not cur.fetchone():
             cur.execute(
@@ -161,7 +170,7 @@ def _ensure_customer_exists(user: dict) -> None:
                 (name, email, "USA"),
             )
             conn.commit()
-            logger.info("Auto-created customer for logged-in user: %s", email)
+            logger.info("JIT-created customer for logged-in user: %s", email)
         conn.close()
     except Exception as exc:
         logger.warning("Could not ensure customer exists: %s", exc)
