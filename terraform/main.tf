@@ -7,12 +7,44 @@ locals {
 resource "okta_app_oauth" "atko_assistant_app" {
   label                     = "Atko Assistant"
   type                      = "web"
-  grant_types               = ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange", "password"]
+  grant_types               = ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"]
   redirect_uris             = [var.redirect_uri]
   post_logout_redirect_uris = ["${var.app_base_url}/login-page"]
   response_types            = ["code"]
   pkce_required             = true
   authentication_policy     = okta_app_signon_policy.atko_assistant_auth.id
+
+  lifecycle {
+    ignore_changes = [grant_types]
+  }
+}
+
+# ── Enable ROPG grant type (not allowed at app creation time) ─────────────────
+#
+# Okta's API rejects "password" in grant_types on POST /api/v1/apps for web apps.
+# We add it via a PUT after the app is created.
+
+resource "terraform_data" "enable_ropg" {
+  depends_on = [okta_app_oauth.atko_assistant_app]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      curl -s -X PUT \
+        "https://${var.okta_org_name}.${var.okta_base_url}/api/v1/apps/${okta_app_oauth.atko_assistant_app.id}" \
+        -H "Authorization: SSWS ${var.okta_api_token}" \
+        -H "Content-Type: application/json" \
+        -d "$(curl -s "https://${var.okta_org_name}.${var.okta_base_url}/api/v1/apps/${okta_app_oauth.atko_assistant_app.id}" \
+          -H "Authorization: SSWS ${var.okta_api_token}" \
+          | python3 -c "
+import json, sys
+app = json.load(sys.stdin)
+grants = app['settings']['oauthClient']['grant_types']
+if 'password' not in grants:
+    grants.append('password')
+print(json.dumps(app))
+")" > /dev/null
+    EOT
+  }
 }
 
 # ── Authentication Policy — password-only for service account ROPG ──────────
@@ -38,7 +70,7 @@ resource "okta_app_signon_policy_rule" "service_account_password_only" {
 resource "okta_app_signon_policy_rule" "catch_all" {
   policy_id       = okta_app_signon_policy.atko_assistant_auth.id
   name            = "Catch-All — Default MFA"
-  priority        = 99
+  priority        = 98
   factor_mode     = "1FA"
   constraints     = [jsonencode({ knowledge = { types = ["password"] } })]
   groups_included = [data.okta_group.everyone.id]
@@ -127,4 +159,27 @@ resource "okta_auth_server_policy_rule" "allow_service_account" {
     "urn:ietf:params:oauth:grant-type:jwt-bearer",
     "urn:ietf:params:oauth:grant-type:token-exchange",
   ]
+}
+
+# ── Service Account User (ROPG) ──────────────────────────────────────────────
+#
+# Creates the service account user for elevated operations.
+# The user authenticates via ROPG (password grant) and must be assigned
+# to the OIDC app. Skip if service_account_email is not set.
+
+resource "okta_user" "service_account" {
+  count      = var.service_account_email != "" ? 1 : 0
+  first_name = var.service_account_first_name
+  last_name  = var.service_account_last_name
+  login      = var.service_account_email
+  email      = var.service_account_email
+  password   = var.service_account_password
+  status     = "ACTIVE"
+}
+
+resource "okta_app_user" "service_account_assignment" {
+  count    = var.service_account_email != "" ? 1 : 0
+  app_id   = okta_app_oauth.atko_assistant_app.id
+  user_id  = okta_user.service_account[0].id
+  username = var.service_account_email
 }

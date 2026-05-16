@@ -244,6 +244,7 @@ The `terraform/` directory contains a Terraform configuration that automates mos
 | Consumer policy rule | Everyone group, `frontier:read`, Auth Code + JWT Bearer + Token Exchange |
 | Service Account policy rule | Everyone group, `frontier:elevated`, **Password + JWT Bearer + Token Exchange** |
 | Authentication policy | Password-only sign-in for the service account (assigned to the OIDC app) |
+| Service account user | Created and assigned to the OIDC app (set `service_account_email` + `service_account_password` in tfvars) |
 
 #### What still requires manual steps (cannot be done via Terraform)
 
@@ -256,10 +257,13 @@ The `terraform/` directory contains a Terraform configuration that automates mos
 3. Download `private_key.pem` — you cannot retrieve it again
 4. Record the **Client ID** shown on the AI Agent page (you will need it as `okta_ai_agent_id` in `terraform.tfvars`)
 
-**Step 2 (after terraform apply) — Link the OIDC app to the AI Agent:**
+**Step 2 (after terraform apply) — Link the OIDC app and add Managed Connection:**
 
 1. Go to **Directory → AI Agents → Atko Assistant Agent**
 2. Under **Linked Applications**, add the `Atko Assistant` OIDC app that Terraform created
+3. Under **Managed connections** → **Add connection** → select the `Frontier MCP` authorization server, set scopes to **All**
+
+> **Critical**: Without this managed connection the Org AS returns `invalid_target` on token exchange. This authorizes the AI Agent to request tokens for the Frontier MCP resource server on behalf of users.
 
 #### Prerequisites for Terraform
 
@@ -286,7 +290,32 @@ terraform output env_file_snippet
 terraform output -raw okta_client_secret
 ```
 
-Then complete the two manual steps above (link OIDC app to AI Agent), fill in `OKTA_SERVICE_CLIENT_ID` and `OKTA_SERVICE_KEY_PATH` in `.env`, and proceed to Phase 2.
+Then complete the two manual steps above (link OIDC app to AI Agent and add Managed Connection), fill in `OKTA_SERVICE_CLIENT_ID`, `OKTA_SERVICE_KEY_PATH`, and `OKTA_SERVICE_KEY_ID` in `.env`, and proceed to Phase 2.
+
+#### Re-running Terraform / Applying to an existing org
+
+If you previously configured Okta manually (Option A) or had a partial `terraform apply`, you may see errors on re-run:
+
+**"failed to create access policy — 400 Bad Request"**: An authentication policy with the same name already exists. Import it into Terraform state:
+
+```bash
+# Find the existing policy ID
+curl -s -H "Authorization: SSWS $OKTA_API_TOKEN" \
+  "https://$OKTA_ORG_NAME.$OKTA_BASE_URL/api/v1/policies?type=ACCESS_POLICY" \
+  | python3 -c "import json,sys; [print(f\"{p['id']}  {p['name']}\") for p in json.load(sys.stdin)]"
+
+# Import it (replace POLICY_ID with the ID from above)
+terraform import okta_app_signon_policy.atko_assistant_auth POLICY_ID
+```
+
+**Starting from scratch**: If you want a completely clean slate, destroy all Terraform-managed resources first:
+
+```bash
+terraform destroy
+terraform apply
+```
+
+> **Note**: `terraform destroy` only removes resources Terraform manages. Manually-created resources (AI Agent, users, etc.) are not affected.
 
 ---
 

@@ -34,6 +34,31 @@ variable "service_account_group_ids" {
   default     = []
 }
 
+variable "service_account_email" {
+  description = "Email/login for the ROPG service account user (e.g. svc-atko-agent@your-org.com)"
+  type        = string
+  default     = ""
+}
+
+variable "service_account_password" {
+  description = "Password for the ROPG service account user — vault this in production"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "service_account_first_name" {
+  description = "First name for the service account user"
+  type        = string
+  default     = "Atko"
+}
+
+variable "service_account_last_name" {
+  description = "Last name for the service account user"
+  type        = string
+  default     = "Service Agent"
+}
+
 variable "redirect_uri" {
   description = "OIDC sign-in redirect URI for the local app"
   type        = string
