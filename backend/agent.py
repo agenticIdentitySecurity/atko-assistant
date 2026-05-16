@@ -227,6 +227,7 @@ async def _run_elevated_tool(
     env["OKTA_MCP_RESOURCE_SERVER_ISSUER"] = settings.OKTA_MCP_RESOURCE_SERVER_ISSUER
     env["OKTA_MCP_AUDIENCE"] = settings.OKTA_MCP_AUDIENCE
     env["DATABASE_PATH"] = settings.DATABASE_PATH
+    env["MCP_SKIP_TOKEN_VALIDATION"] = "true"
 
     server_params = StdioServerParameters(
         command=sys.executable,
@@ -394,6 +395,7 @@ async def run_agent(
     env["OKTA_MCP_RESOURCE_SERVER_ISSUER"] = settings.OKTA_MCP_RESOURCE_SERVER_ISSUER
     env["OKTA_MCP_AUDIENCE"] = settings.OKTA_MCP_AUDIENCE
     env["DATABASE_PATH"] = settings.DATABASE_PATH
+    env["MCP_SKIP_TOKEN_VALIDATION"] = "true"
 
     server_params = StdioServerParameters(
         command=sys.executable,

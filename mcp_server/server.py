@@ -235,13 +235,28 @@ if __name__ == "__main__":
         logger.error("MCP_ACCESS_TOKEN env var is required")
         sys.exit(1)
 
-    logger.info("Validating MCP access token…")
-    try:
-        claims = _validate_token_sync(token)
-        logger.info("Token valid — user sub: %s", claims.get("sub"))
-    except Exception as exc:
-        logger.error("Token validation failed: %s", exc)
-        sys.exit(1)
+    # Token validation — can be skipped if the caller already validated (e.g. XAA flow)
+    if os.getenv("MCP_SKIP_TOKEN_VALIDATION", "").lower() in ("1", "true"):
+        logger.info("Token validation skipped (MCP_SKIP_TOKEN_VALIDATION=true)")
+        # Still extract scopes from the unverified token for tool gating
+        try:
+            unverified = jose_jwt.get_unverified_claims(token)
+            scopes_raw = unverified.get("scp") or unverified.get("scope", [])
+            if isinstance(scopes_raw, str):
+                _token_scopes.update(scopes_raw.split())
+            elif isinstance(scopes_raw, list):
+                _token_scopes.update(scopes_raw)
+            logger.info("Token scopes (unverified): %s", _token_scopes)
+        except Exception as exc:
+            logger.warning("Could not extract scopes from token: %s", exc)
+    else:
+        logger.info("Validating MCP access token…")
+        try:
+            claims = _validate_token_sync(token)
+            logger.info("Token valid — user sub: %s", claims.get("sub"))
+        except Exception as exc:
+            logger.error("Token validation failed: %s", exc)
+            sys.exit(1)
 
     db.initialize()
     logger.info("Starting MCP stdio server")
