@@ -401,9 +401,19 @@ async def run_agent(
         env=env,
     )
 
-    async with stdio_client(server_params) as (read, write):
+    import io
+    errlog_buffer = io.StringIO()
+
+    async with stdio_client(server_params, errlog=errlog_buffer) as (read, write):
         async with ClientSession(read, write) as session:
-            await session.initialize()
+            try:
+                await session.initialize()
+            except Exception as init_exc:
+                stderr_output = errlog_buffer.getvalue()
+                logger.error("MCP subprocess failed during initialize: %s", init_exc)
+                if stderr_output:
+                    logger.error("MCP subprocess stderr:\n%s", stderr_output)
+                raise
 
             # Seed the loop with the first tool_use response from phase A
             pending_response = first_response
