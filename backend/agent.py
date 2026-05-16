@@ -401,19 +401,17 @@ async def run_agent(
         env=env,
     )
 
-    import io
-    errlog_buffer = io.StringIO()
+    # Log token details for debugging MCP subprocess crashes
+    try:
+        token_claims = jose_jwt.get_unverified_claims(mcp_token)
+        logger.info("MCP token issuer=%s aud=%s sub=%s",
+                    token_claims.get("iss"), token_claims.get("aud"), token_claims.get("sub"))
+    except Exception:
+        logger.warning("Could not decode MCP token for logging")
 
-    async with stdio_client(server_params, errlog=errlog_buffer) as (read, write):
+    async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
-            try:
-                await session.initialize()
-            except Exception as init_exc:
-                stderr_output = errlog_buffer.getvalue()
-                logger.error("MCP subprocess failed during initialize: %s", init_exc)
-                if stderr_output:
-                    logger.error("MCP subprocess stderr:\n%s", stderr_output)
-                raise
+            await session.initialize()
 
             # Seed the loop with the first tool_use response from phase A
             pending_response = first_response
