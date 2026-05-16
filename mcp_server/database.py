@@ -13,6 +13,7 @@ class Database:
         self.conn: sqlite3.Connection | None = None
 
     def initialize(self) -> None:
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         init_schema(self.conn)
